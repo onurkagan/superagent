@@ -21,9 +21,12 @@ Every open Ticket has exactly one stage, worked out from stored facts. The first
 
 ## The worker
 
-Each Ticket gets a directory under the work root (`<state_dir>/work/<ticket-name>` by default) and a session file
-that stores its whole model conversation. A turn is a loop: the model reads the conversation and calls tools, the
-host runs them and appends the results, until the model ends the turn with a Report.
+Each Ticket gets a directory under the work root (`<state_dir>/work/<ticket-name>` by default) and a session that
+keeps its whole model conversation across turns. A turn is a loop: the model reads the conversation and calls tools,
+the tools run, and the results are appended, until the model ends the turn with a Report. With the `anthropic`
+backend superagent runs this loop itself with the tools below; with the `claude-code` backend each turn is a
+`claude -p` process that uses Claude Code's shell and file tools plus the same superagent tools through an MCP bridge
+(see *Backends* in [004 Prompts](004-prompts.md)).
 
 | Tool | What it does |
 | --- | --- |

@@ -5,7 +5,10 @@ How to install, configure, run, upgrade and troubleshoot superagent. It builds o
 ## Requirements
 
 - Python 3.11 or later.
-- Access to Claude through the Anthropic API: `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, or `ant auth login`.
+- Access to Claude, through either backend:
+  - `anthropic`: the Anthropic API, with `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, or `ant auth login`;
+  - `claude-code`: the [Claude Code](https://code.claude.com) command line, installed and logged in. No API key is
+    needed; check that your plan allows unattended use.
 - For GitHub: the [GitHub CLI](https://cli.github.com) logged in (`gh auth login`) as the account the agent acts as.
   A dedicated machine user with write access to the watched repositories is recommended, so the team can tell the
   agent's work apart and you can revoke its access in one place.
@@ -38,7 +41,8 @@ superagent doctor      # checks the configuration, credentials, gh login and acc
 | `execution.prepare` | empty | Shell command run once per Ticket in the work root |
 | `execution.root` | `<state_dir>/work` | Where ticket directories are created |
 | `execution.blocked_commands` | `sudo shutdown reboot mkfs dd` | Programs workers may not run by name |
-| `execution.max_steps` | `200` | Model steps per turn before a Ticket reports `blocked` |
+| `execution.max_steps` | `200` | `anthropic` backend: model steps per turn before a Ticket reports `blocked` |
+| `execution.turn_timeout_seconds` | `3600` | `claude-code` backend: longest turn before a Ticket reports `blocked` |
 | `policy.mode` | `observe` | `off`, `observe` or `auto` for proactive candidates |
 | `policy.eval_timeout_seconds` | `600` | How long an assessment may take |
 | `[[policy.rules]]` | none | Proactive rules: `id`, `name`, `instruction`, `enabled` |
