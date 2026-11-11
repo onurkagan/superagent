@@ -11,13 +11,15 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from superagent.agents.orchestrator_tools import WORKERS_KEY
 from superagent.core.model import Assignment, Decision, Thread, Ticket, Trigger
 from superagent.core.serde import to_dict
 from superagent.core.stage import ticket_stage
+from superagent.orchestrator import STATE_KEY, chat_log
 from superagent.outbox import Outbox
 from superagent.store import Store
 
-COMMANDS = ("stop", "retry", "pause", "resume", "reevaluate")
+COMMANDS = ("stop", "retry", "pause", "resume", "reevaluate", "chat", "orchestrator_reset")
 
 
 def _since(hours: int = 24) -> str:
@@ -140,10 +142,15 @@ class PanelData:
             "problems": self.problems(),
             "activity": self.activity(),
             "paused": bool(self.store.kv_get("paused", False)),
-            "executor": status.get("executor"),
+            "executor": status.get("executor") or self.store.kv_get(WORKERS_KEY),
             "policy": status.get("policy", ""),
             "open_tickets": self.store.count(Ticket, tag="open"),
+            "orchestrator": self.store.kv_get(STATE_KEY) or {"enabled": False},
         }
+
+    def orchestrator(self, limit: int = 50) -> dict[str, Any]:
+        """The orchestrator's state and its conversation with the operator, oldest first."""
+        return {"state": self.store.kv_get(STATE_KEY) or {"enabled": False}, "chat": chat_log(self.store, limit)}
 
     # -- history -----------------------------------------------------------------------------------------------
 
