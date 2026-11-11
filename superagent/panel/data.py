@@ -49,7 +49,7 @@ class PanelData:
             "attention": ticket.attention,
             "last_report": to_dict(last) if last else None,
             "pull_requests": ticket.pull_requests,
-            "can_retry": ticket.live and (ticket.delivery_failures > 0 or ticket.held),
+            "can_retry": ticket.live and stage.name in ("delivery", "blocked", "failed"),
             "updated_at": ticket.updated_at,
         }
 

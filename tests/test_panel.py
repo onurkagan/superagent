@@ -115,3 +115,16 @@ def test_post_actions_need_the_panel_header(server):
 def test_non_local_binding_requires_a_token(engine):
     with pytest.raises(ValueError):
         PanelServer(PanelData(engine.store), host="0.0.0.0", port=0)
+
+
+def test_retry_is_offered_only_for_delivery_blocked_or_failed(engine):
+    decision = accept(engine)
+    assignment_id = engine.store.get(Ticket, decision.ticket_id).assignment_id
+    engine.report(decision.ticket_id, assignment_id, Report("blocked", "need input", question="Which one?"))
+    data = PanelData(engine.store)
+    assert data.tickets()[0]["stage"]["name"] == "answer" and not data.tickets()[0]["can_retry"]
+    engine.report(decision.ticket_id, assignment_id, Report("failed", "crashed"))
+    ticket = engine.store.get(Ticket, decision.ticket_id)
+    ticket.attention = ""
+    engine.store.put(ticket)
+    assert data.tickets()[0]["can_retry"]
