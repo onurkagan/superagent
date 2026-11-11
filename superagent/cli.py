@@ -45,7 +45,7 @@ def cmd_init(args: argparse.Namespace) -> int:
         print(f"{path} already exists; use --force to overwrite it", file=sys.stderr)
         return 1
     path.write_text(CONFIG_TEMPLATE, encoding="utf-8")
-    print(f"Wrote {path}. Edit the repository and allowed list, then run `superagent doctor`.")
+    print(f"Wrote {path}. Edit the repositories and the allowed list, then run `superagent doctor`.")
     return 0
 
 
@@ -69,18 +69,20 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         has_key = subprocess.run(["ant", "auth", "status"], capture_output=True).returncode == 0
     healthy &= _check(has_key, "model credentials",
                       "set ANTHROPIC_API_KEY, or log in with `ant auth login`")
-    if settings.github and settings.github.enabled:
+    if settings.github_sources:
         gh = shutil.which("gh")
         healthy &= _check(bool(gh), "GitHub CLI installed", "install it from https://cli.github.com")
         if gh:
             auth = subprocess.run([gh, "auth", "status"], capture_output=True, text=True)
             healthy &= _check(auth.returncode == 0, "GitHub CLI logged in", "run `gh auth login` as the agent account")
-            repo = subprocess.run([gh, "api", f"repos/{settings.github.repository}", "--jq", ".full_name"],
-                                  capture_output=True, text=True)
-            healthy &= _check(repo.returncode == 0, f"access to {settings.github.repository}",
-                              (repo.stderr or "").strip()[:200])
-        healthy &= _check(bool(settings.github.allowed), "allowed list is not empty",
-                          "add the people who may ask for work to [sources.github] allowed")
+        for source in settings.github_sources:
+            for repository in source.repositories if gh else ():
+                repo = subprocess.run([gh, "api", f"repos/{repository}", "--jq", ".full_name"],
+                                      capture_output=True, text=True)
+                healthy &= _check(repo.returncode == 0, f"[sources.{source.name}] access to {repository}",
+                                  (repo.stderr or "").strip()[:200])
+            healthy &= _check(bool(source.allowed), f"[sources.{source.name}] allowed list is not empty",
+                              f"add the people who may ask for work to [sources.{source.name}] allowed")
     print("All checks passed." if healthy else "Some checks failed.")
     return 0 if healthy else 1
 
@@ -189,8 +191,8 @@ def cmd_command(args: argparse.Namespace) -> int:
 
 def cmd_say(args: argparse.Namespace) -> int:
     settings = _settings(args)
-    if not settings.inbox or not settings.inbox.enabled:
-        print("the inbox source is not enabled in [sources.inbox]", file=sys.stderr)
+    if settings.inbox is None:
+        print("no inbox source is enabled; add [sources.inbox] to the configuration", file=sys.stderr)
         return 1
     append_message(settings.inbox_path, args.actor, " ".join(args.text), thread=args.thread, bot=args.bot,
                    addressed=not args.unaddressed)

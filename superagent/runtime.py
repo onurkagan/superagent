@@ -19,7 +19,7 @@ from superagent.agents.executor import Executor
 from superagent.agents.prompts import PromptLibrary
 from superagent.agents.worker import WorkerSpec
 from superagent.cards import assignment_card, input_card
-from superagent.config import Settings
+from superagent.config import GitHubSettings, InboxSettings, Settings
 from superagent.core.engine import Candidate, Engine, Outcome
 from superagent.core.model import Assignment, Ticket, Trigger
 from superagent.llm.client import AnthropicModelClient, ModelClient
@@ -33,14 +33,20 @@ log = logging.getLogger(__name__)
 
 
 def build_sources(settings: Settings, store: Store, prompts: PromptLibrary) -> list[Source]:
+    """One Source per enabled ``[sources.<name>]`` table; a GitHub Source may watch many repositories."""
     sources: list[Source] = []
-    if settings.github and settings.github.enabled:
-        gh = settings.github
-        sources.append(GitHubSource(GitHubConfig(repository=gh.repository, account=gh.account,
-                                                 receive_all=dict(gh.receive_all), poll_seconds=gh.poll_seconds,
-                                                 disclosure=gh.disclosure), store, prompts=prompts))
-    if settings.inbox and settings.inbox.enabled:
-        sources.append(InboxSource(store, settings.inbox_path, settings.replies_path, settings.inbox.poll_seconds))
+    for name, config in settings.sources().items():
+        if isinstance(config, GitHubSettings):
+            sources.append(GitHubSource(
+                GitHubConfig(repositories=config.repositories, account=config.account,
+                             receive_all=dict(config.receive_all), poll_seconds=config.poll_seconds,
+                             disclosure=config.disclosure),
+                store, prompts=prompts, name=name))
+        elif isinstance(config, InboxSettings):
+            path, replies = settings.inbox_files(config)
+            source = InboxSource(store, path, replies, config.poll_seconds)
+            source.name = name
+            sources.append(source)
     return sources
 
 
@@ -211,7 +217,7 @@ class Runtime:
         policy = self.engine.policy
         rules = [r for r in (policy.rule(i) for i in ticket.mandate.rules) if r] \
             if ticket.mandate.strength == "inferred" else []
-        system = self.prompts.worker_system(variables, [s.instructions() for s in self.registry], rules)
+        system = self.prompts.worker_system(variables, self.registry.instructions(), rules)
         return WorkerSpec(
             ticket_id=ticket.id, assignment_id=assignment.id, name=ticket.name, directory=directory,
             session_path=settings.sessions_dir / f"{ticket.id}.json", system=system, model=settings.model.worker,

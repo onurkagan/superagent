@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from superagent.config import CONFIG_TEMPLATE, ConfigError, load_settings, parse_settings
+from superagent.config import CONFIG_TEMPLATE, ConfigError, GitHubSettings, InboxSettings, load_settings, parse_settings
 
 MINIMAL = {"sources": {"inbox": {"allowed": ["me"]}}}
 
@@ -19,26 +19,45 @@ def test_minimal_config_uses_defaults():
     assert settings.state_path == Path("/srv/agent/.superagent")
     assert settings.work_root == Path("/srv/agent/.superagent/work")
     assert settings.inbox_path == Path("/srv/agent/.superagent/inbox.jsonl")
+    assert settings.replies_path == Path("/srv/agent/.superagent/replies.jsonl")
     assert list(settings.sources()) == ["inbox"]
 
 
-def test_template_parses_once_placeholders_are_filled():
-    data = tomllib.loads(CONFIG_TEMPLATE)
-    settings = parse(data)
-    assert settings.github.repository == "OWNER/NAME"
+def test_template_parses_with_several_repositories():
+    settings = parse(tomllib.loads(CONFIG_TEMPLATE))
+    [github] = settings.github_sources
+    assert github.name == "github" and github.repositories == ("OWNER/NAME", "OWNER/OTHER")
     assert settings.policy.rules[0].id == "dependency-updates" and not settings.policy.rules[0].enabled
-    assert "git clone" in settings.execution.prepare
+    assert "$SUPERAGENT_GITHUB_REPOSITORY" in settings.execution.prepare
+    assert list(settings.sources()) == ["github"]
+
+
+def test_named_instances_have_their_own_kind_and_policy():
+    data = {"sources": {
+        "backend": {"kind": "github", "repositories": ["acme/api", "acme/worker"], "allowed": ["alice"]},
+        "frontend": {"kind": "github", "repositories": ["acme/web"], "allowed": ["bob"]},
+        "lab": {"kind": "inbox", "allowed": ["me"]},
+    }}
+    settings = parse(data)
+    assert [s.name for s in settings.github_sources] == ["backend", "frontend"]
+    assert isinstance(settings.source_configs["lab"], InboxSettings)
+    assert settings.inbox_files(settings.inbox) == (Path("/srv/agent/.superagent/lab.jsonl"),
+                                                    Path("/srv/agent/.superagent/lab-replies.jsonl"))
+    policy = settings.build_policy()
+    assert policy.sources["backend"].allowed == ("alice",) and policy.sources["frontend"].allowed == ("bob",)
 
 
 def test_policy_is_built_from_enabled_sources():
     data = {"policy": {"mode": "auto", "rules": [{"id": "r", "name": "R", "instruction": "Do r."}]},
-            "sources": {"github": {"repository": "o/r", "allowed": ["alice"], "bots": ["dependabot[bot]"],
+            "sources": {"github": {"repositories": ["o/r"], "allowed": ["alice"], "bots": ["dependabot[bot]"],
                                    "admission": {"unlisted_addressed": "inferred"}},
                         "inbox": {"enabled": False}}}
-    policy = parse(data).build_policy()
+    settings = parse(data)
+    policy = settings.build_policy()
     assert policy.mode == "auto" and list(policy.sources) == ["github"]
     assert policy.sources["github"].admission.unlisted_addressed == "inferred"
     assert policy.rules[0].instruction == "Do r."
+    assert isinstance(settings.source_configs["github"], GitHubSettings) and settings.inbox is None
 
 
 @pytest.mark.parametrize("data,message", [
@@ -46,7 +65,14 @@ def test_policy_is_built_from_enabled_sources():
     ({**MINIMAL, "policy": {"mode": "yolo"}}, "must be one of"),
     ({**MINIMAL, "model": {"worker_effort": "extreme"}}, "must be one of"),
     ({**MINIMAL, "execution": {"concurrency": 0}}, "at least 1"),
-    ({"sources": {"github": {"repository": "nope"}}}, "owner/name"),
+    ({"sources": {"github": {"repositories": ["nope"]}}}, "owner/name"),
+    ({"sources": {"github": {"repositories": []}}}, "at least one repository"),
+    ({"sources": {"github": {"repositories": ["o/r", "O/R"]}}}, "twice"),
+    ({"sources": {"a": {"kind": "github", "repositories": ["o/r"]}, "b": {"kind": "github", "repositories": ["o/r"]}}},
+     "belongs to one source"),
+    ({"sources": {"github": {"repository": "o/r"}}}, "unknown setting"),
+    ({"sources": {"mystery": {"allowed": []}}}, "kind must be one of"),
+    ({"sources": {"Bad_Name": {"kind": "inbox"}}}, "lowercase"),
     ({"sources": {"inbox": {"enabled": False}}}, "enable at least one source"),
     ({"sources": {"inbox": {"admission": {"listed_unaddressed": "explicit"}}}}, "cannot be explicit"),
     ({**MINIMAL, "policy": {"rules": [{"id": "a", "instruction": "x"}, {"id": "a", "instruction": "y"}]}},

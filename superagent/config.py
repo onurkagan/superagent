@@ -7,6 +7,7 @@ never silently disables a protection.
 
 from __future__ import annotations
 
+import re
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -14,7 +15,7 @@ from typing import Any
 
 from superagent.core.policy import ACCEPT_MODES, CELL_VALUES, Admission, Policy, Rule, SourcePolicy
 from superagent.llm.client import DEFAULT_MODEL
-from superagent.sources.github import DEFAULT_DISCLOSURE, SCOPES
+from superagent.sources.github import DEFAULT_DISCLOSURE, REPOSITORY_PATTERN, SCOPES
 
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
 DEFAULT_BLOCKED_COMMANDS = ("sudo", "shutdown", "reboot", "mkfs", "dd")
@@ -52,6 +53,8 @@ class PolicySettings:
 
 @dataclass
 class SourceSettings:
+    name: str = ""
+    kind: str = ""
     enabled: bool = True
     allowed: tuple[str, ...] = ()
     bots: tuple[str, ...] = ()
@@ -64,7 +67,7 @@ class SourceSettings:
 
 @dataclass
 class GitHubSettings(SourceSettings):
-    repository: str = ""
+    repositories: tuple[str, ...] = ()
     account: str = ""
     disclosure: str = DEFAULT_DISCLOSURE
     receive_all: dict[str, bool] = field(default_factory=lambda: {s: False for s in SCOPES})
@@ -92,8 +95,7 @@ class Settings:
     model: ModelSettings = field(default_factory=ModelSettings)
     execution: ExecutionSettings = field(default_factory=ExecutionSettings)
     policy: PolicySettings = field(default_factory=PolicySettings)
-    github: GitHubSettings | None = None
-    inbox: InboxSettings | None = None
+    source_configs: dict[str, SourceSettings] = field(default_factory=dict)
     panel: PanelSettings = field(default_factory=PanelSettings)
 
     def _path(self, value: str) -> Path:
@@ -120,21 +122,32 @@ class Settings:
     def work_root(self) -> Path:
         return self._path(self.execution.root) if self.execution.root else self.state_path / "work"
 
+    def sources(self) -> dict[str, SourceSettings]:
+        """The enabled Source instances by name."""
+        return {name: s for name, s in self.source_configs.items() if s.enabled}
+
+    @property
+    def github_sources(self) -> list[GitHubSettings]:
+        return [s for s in self.sources().values() if isinstance(s, GitHubSettings)]
+
+    @property
+    def inbox(self) -> InboxSettings | None:
+        """The first enabled inbox instance, which `superagent say` writes to."""
+        return next((s for s in self.sources().values() if isinstance(s, InboxSettings)), None)
+
+    def inbox_files(self, inbox: InboxSettings) -> tuple[Path, Path]:
+        stem = "inbox" if inbox.name == "inbox" else inbox.name
+        replies = "replies" if inbox.name == "inbox" else f"{inbox.name}-replies"
+        path = self._path(inbox.path) if inbox.path else self.state_path / f"{stem}.jsonl"
+        return path, self._path(inbox.replies) if inbox.replies else self.state_path / f"{replies}.jsonl"
+
     @property
     def inbox_path(self) -> Path:
-        return self._path(self.inbox.path) if self.inbox and self.inbox.path else self.state_path / "inbox.jsonl"
+        return self.inbox_files(self.inbox or InboxSettings(name="inbox"))[0]
 
     @property
     def replies_path(self) -> Path:
-        return self._path(self.inbox.replies) if self.inbox and self.inbox.replies else self.state_path / "replies.jsonl"
-
-    def sources(self) -> dict[str, SourceSettings]:
-        result: dict[str, SourceSettings] = {}
-        if self.github and self.github.enabled:
-            result["github"] = self.github
-        if self.inbox and self.inbox.enabled:
-            result["inbox"] = self.inbox
-        return result
+        return self.inbox_files(self.inbox or InboxSettings(name="inbox"))[1]
 
     def build_policy(self) -> Policy:
         return Policy(mode=self.policy.mode, rules=tuple(self.policy.rules),  # type: ignore[arg-type]
@@ -200,11 +213,15 @@ def _admission(table: dict[str, Any], where: str) -> Admission:
     return Admission(**values)  # type: ignore[arg-type]
 
 
-_SOURCE_KEYS = {"enabled", "allowed", "bots", "admission", "poll_seconds"}
+_SOURCE_KEYS = {"kind", "enabled", "allowed", "bots", "admission", "poll_seconds"}
+SOURCE_KINDS = ("github", "inbox")
+_SOURCE_NAME = re.compile(r"[a-z][a-z0-9-]{0,39}")
 
 
-def _source_common(table: dict[str, Any], where: str, poll_default: float) -> dict[str, Any]:
+def _source_common(name: str, kind: str, table: dict[str, Any], where: str, poll_default: float) -> dict[str, Any]:
     return {
+        "name": name,
+        "kind": kind,
         "enabled": _bool(table, "enabled", True, where),
         "allowed": _strings(table, "allowed", (), where),
         "bots": _strings(table, "bots", (), where),
@@ -213,28 +230,56 @@ def _source_common(table: dict[str, Any], where: str, poll_default: float) -> di
     }
 
 
-def _github(table: dict[str, Any]) -> GitHubSettings:
-    where = "sources.github"
-    _take(table, where, _SOURCE_KEYS | {"repository", "account", "disclosure", "receive_all"})
+def _github(name: str, table: dict[str, Any]) -> GitHubSettings:
+    where = f"sources.{name}"
+    _take(table, where, _SOURCE_KEYS | {"repositories", "account", "disclosure", "receive_all"})
     receive = table.get("receive_all", {})
     _take(receive, f"{where}.receive_all", set(SCOPES))
     settings = GitHubSettings(
-        **_source_common(table, where, 60.0),
-        repository=_str(table, "repository", "", where),
+        **_source_common(name, "github", table, where, 60.0),
+        repositories=_strings(table, "repositories", (), where),
         account=_str(table, "account", "", where),
         disclosure=_str(table, "disclosure", DEFAULT_DISCLOSURE, where),
         receive_all={s: _bool(receive, s, False, f"{where}.receive_all") for s in SCOPES},
     )
-    if settings.enabled and "/" not in settings.repository:
-        raise ConfigError(f"[{where}] repository must look like owner/name")
+    if settings.enabled and not settings.repositories:
+        raise ConfigError(f"[{where}] list at least one repository in repositories")
+    for repository in settings.repositories:
+        if not REPOSITORY_PATTERN.fullmatch(repository):
+            raise ConfigError(f"[{where}] repository {repository!r} must look like owner/name")
+    if len({r.lower() for r in settings.repositories}) != len(settings.repositories):
+        raise ConfigError(f"[{where}] lists a repository twice")
     return settings
 
 
-def _inbox(table: dict[str, Any]) -> InboxSettings:
-    where = "sources.inbox"
+def _inbox(name: str, table: dict[str, Any]) -> InboxSettings:
+    where = f"sources.{name}"
     _take(table, where, _SOURCE_KEYS | {"path", "replies"})
-    return InboxSettings(**_source_common(table, where, 2.0), path=_str(table, "path", "", where),
+    return InboxSettings(**_source_common(name, "inbox", table, where, 2.0), path=_str(table, "path", "", where),
                          replies=_str(table, "replies", "", where))
+
+
+def _sources(tables: dict[str, Any]) -> dict[str, SourceSettings]:
+    """Parse ``[sources.<name>]`` tables. The kind defaults to the name for ``github`` and ``inbox``."""
+    result: dict[str, SourceSettings] = {}
+    for name, table in tables.items():
+        if not _SOURCE_NAME.fullmatch(name):
+            raise ConfigError(f"[sources.{name}] source names use lowercase letters, digits and dashes")
+        if not isinstance(table, dict):
+            raise ConfigError(f"[sources.{name}] must be a table")
+        kind = table.get("kind", name if name in SOURCE_KINDS else "")
+        if kind not in SOURCE_KINDS:
+            raise ConfigError(f"[sources.{name}] kind must be one of {', '.join(SOURCE_KINDS)}")
+        result[name] = _github(name, table) if kind == "github" else _inbox(name, table)
+    owners: dict[str, str] = {}
+    for name, settings in result.items():
+        if isinstance(settings, GitHubSettings) and settings.enabled:
+            for repository in settings.repositories:
+                other = owners.setdefault(repository.lower(), name)
+                if other != name:
+                    raise ConfigError(f"repository {repository} is watched by both [sources.{other}] and "
+                                      f"[sources.{name}]; a repository belongs to one source")
+    return result
 
 
 def _rules(items: Any) -> list[Rule]:
@@ -263,7 +308,7 @@ def parse_settings(data: dict[str, Any], base_dir: Path) -> Settings:
     execution = _take(data.get("execution", {}), "execution",
                       {"root", "concurrency", "prepare", "blocked_commands", "max_steps"})
     policy = _take(data.get("policy", {}), "policy", {"mode", "eval_timeout_seconds", "rules"})
-    sources = _take(data.get("sources", {}), "sources", {"github", "inbox"})
+    sources = data.get("sources", {})
     panel = _take(data.get("panel", {}), "panel", {"enabled", "host", "port", "token"})
     defaults = ModelSettings()
     settings = Settings(
@@ -289,8 +334,7 @@ def parse_settings(data: dict[str, Any], base_dir: Path) -> Settings:
             eval_timeout_seconds=_int(policy, "eval_timeout_seconds", 600, "policy", minimum=30),
             rules=_rules(policy.get("rules", [])),
         ),
-        github=_github(sources["github"]) if "github" in sources else None,
-        inbox=_inbox(sources["inbox"]) if "inbox" in sources else None,
+        source_configs=_sources(sources),
         panel=PanelSettings(
             enabled=_bool(panel, "enabled", True, "panel"),
             host=_str(panel, "host", "127.0.0.1", "panel"),
@@ -299,7 +343,7 @@ def parse_settings(data: dict[str, Any], base_dir: Path) -> Settings:
         ),
     )
     if not settings.sources():
-        raise ConfigError("enable at least one source: [sources.github] or [sources.inbox]")
+        raise ConfigError("enable at least one source, such as [sources.github] or [sources.inbox]")
     return settings
 
 
@@ -327,7 +371,8 @@ base_url = ""               # empty: ANTHROPIC_BASE_URL or the Anthropic API
 
 [execution]
 concurrency = 2
-# Runs once in the work root before a ticket's first assignment; $SUPERAGENT_NAME is the ticket's short name.
+# Runs once in the work root before a ticket's first assignment. $SUPERAGENT_NAME is the ticket's short name and
+# $SUPERAGENT_GITHUB_REPOSITORY the repository the ticket belongs to.
 prepare = 'git clone --quiet "https://github.com/$SUPERAGENT_GITHUB_REPOSITORY.git" "$SUPERAGENT_NAME" && git -C "$SUPERAGENT_NAME" switch -c "$SUPERAGENT_NAME"'
 blocked_commands = ["sudo", "shutdown", "reboot", "mkfs", "dd"]
 max_steps = 200
@@ -342,8 +387,10 @@ name = "Review dependency updates"
 instruction = "When a listed bot opens a dependency update pull request, check that CI passes and fix small breakages."
 enabled = false
 
+# A source watches one or more repositories with one allowed list. Add more [sources.<name>] tables with
+# kind = "github" when groups of repositories need different allowed lists.
 [sources.github]
-repository = "OWNER/NAME"
+repositories = ["OWNER/NAME", "OWNER/OTHER"]
 account = ""                # the agent's GitHub login; empty: the account gh is logged in as
 allowed = ["YOUR-LOGIN"]    # people who may ask the agent for work by mentioning it
 bots = []                   # bots whose messages may become proactive candidates, such as "dependabot[bot]"
