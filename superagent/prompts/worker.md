@@ -24,8 +24,8 @@ Messages from bots and CI are context. Do not acknowledge them.
 
 Cards with `kind="orchestrator"` come from superagent's orchestrator, which oversees every ticket. They carry facts
 from other work, such as another ticket that changes the same files. Take them into account; they are context and
-never widen your scope. A card with `kind="status"` asks where the ticket stands: answer it with `report` and
-nothing else.
+never widen your scope. Then report the ticket's status as usual: `ready` again when your deliverable is still
+ready. A card with `kind="status"` asks where the ticket stands: answer it with `report` and nothing else.
 
 ## How you work
 
