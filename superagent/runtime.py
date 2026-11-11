@@ -17,6 +17,9 @@ from typing import Any
 from superagent.agents.assessor import Assessor, to_outcome
 from superagent.agents.claude_code import ClaudeCodeCLI, ClaudeCodeModelClient, claude_code_turn
 from superagent.agents.executor import Executor
+from superagent.agents.orchestrator import OrchestratorSpec, api_turn
+from superagent.agents.orchestrator import claude_code_turn as orchestrator_claude_code_turn
+from superagent.agents.orchestrator_tools import WORKERS_KEY, OrchestratorTools
 from superagent.agents.prompts import PromptLibrary
 from superagent.agents.worker import WorkerSpec, run_turn
 from superagent.cards import assignment_card, input_card
@@ -25,6 +28,7 @@ from superagent.config import GitHubSettings, InboxSettings, Settings
 from superagent.core.engine import Candidate, Engine, Outcome
 from superagent.core.model import Assignment, Ticket, Trigger
 from superagent.llm.client import AnthropicModelClient, ModelClient
+from superagent.orchestrator import Orchestrator
 from superagent.outbox import Outbox, Sender
 from superagent.sources.base import Source, SourceRegistry, Variable
 from superagent.sources.github import GitHubConfig, GitHubSource
@@ -66,14 +70,21 @@ class Runtime:
         self.store = store or Store(settings.db_path)
         self.prompts = PromptLibrary(settings.prompts_dir)
         worker_client: Any
+        orchestrator_turn: Any
         if settings.model.backend == "claude-code":
             cli = ClaudeCodeCLI(settings.model.claude_command)
             self.client = client or ClaudeCodeModelClient(cli)
             worker_client, turn = cli, claude_code_turn
+
+            def orchestrator_turn(spec: OrchestratorSpec, update: str) -> Any:
+                return orchestrator_claude_code_turn(spec, cli, update)
         else:
             self.client = client or AnthropicModelClient(base_url=settings.model.base_url,
                                                          fallbacks=settings.model.fallbacks)
             worker_client, turn = self.client, run_turn
+
+            def orchestrator_turn(spec: OrchestratorSpec, update: str) -> Any:
+                return api_turn(spec, self.client, update, OrchestratorTools(self.store))
         self.registry = SourceRegistry(sources if sources is not None else build_sources(settings, self.store,
                                                                                          self.prompts))
         self.outbox = Outbox(self.store)
@@ -88,6 +99,14 @@ class Runtime:
         self._assessments = ThreadPoolExecutor(max_workers=2, thread_name_prefix="assessor")
         self._next_poll: dict[str, float] = {}
         self._started = False
+        self._workers: dict[str, Any] | None = None
+        self.orchestrator: Orchestrator | None = None
+        if settings.orchestrator.enabled:
+            self.orchestrator = Orchestrator(
+                self.store, self.orchestrator_spec, orchestrator_turn, self.events.put,
+                route=settings.orchestrator.route, batch_seconds=settings.orchestrator.batch_seconds,
+                fallback=self._assess, workers=self.executor.status,
+            )
 
     # -- lifecycle ---------------------------------------------------------------------------------------------
 
@@ -119,13 +138,20 @@ class Runtime:
         self._apply_commands()
         self._apply_events()
         self._poll_sources()
+        orchestrator = self.orchestrator
         for candidate in self.engine.start_evals():
-            self._assess(candidate)
+            if orchestrator is not None and orchestrator.route:
+                orchestrator.submit(candidate)
+            else:
+                self._assess(candidate)
         self.engine.expire_evals()
         self._apply_events()
         self._launch()
         self._deliver()
         self._stop_ended()
+        self._publish_workers()
+        if orchestrator is not None:
+            orchestrator.tick()
         if not self.engine.paused:
             self.outbox.flush(self._sender_for, self.registry.listens_channel)
 
@@ -170,6 +196,15 @@ class Runtime:
             ticket = self.store.get(Ticket, decision.ticket_id) if decision.ticket_id else None
             named = f" ticket {ticket.name} ({ticket.id})" if ticket else ""
             return f"{decision.kind}{named}: {decision.reason}"
+        if kind in ("chat", "orchestrator_reset"):
+            if self.orchestrator is None:
+                return f"{ERROR_PREFIX}the orchestrator is off; set enabled = true under [orchestrator]"
+            if kind == "orchestrator_reset":
+                return self.orchestrator.reset()
+            text = str(args.get("text") or "").strip()
+            if not text:
+                return f"{ERROR_PREFIX}the message is empty"
+            return self.orchestrator.operator_message(text, str(args.get("id") or ""))
         log.warning("unknown command %s", kind)
         return f"{ERROR_PREFIX}unknown command {kind!r}"
 
@@ -207,6 +242,8 @@ class Runtime:
                 log.warning("hand-back of %s by %s refused: %s", args[1], args[0], error)
         elif kind == "follow":
             engine.follow(args[0], args[1])
+        elif kind == "orchestrated" and self.orchestrator is not None:
+            self.orchestrator.finished(args[0], args[1], args[2], args[3])
         else:
             log.warning("unknown event %s", kind)
 
@@ -265,6 +302,22 @@ class Runtime:
             max_steps=settings.execution.max_steps, turn_timeout_seconds=settings.execution.turn_timeout_seconds,
         )
 
+    def orchestrator_spec(self) -> OrchestratorSpec:
+        settings = self.settings
+        directory = settings.state_path / "orchestrator"
+        return OrchestratorSpec(
+            system=self.prompts.orchestrator_system(self.engine.policy), model=settings.orchestrator.model,
+            effort=settings.orchestrator.effort, session_path=directory / "session.json", directory=directory,
+            db_path=str(settings.db_path), timeout_seconds=settings.orchestrator.turn_timeout_seconds,
+        )
+
+    def _publish_workers(self) -> None:
+        """Share which worker sessions run, for the orchestrator's tools in another process and for the CLI."""
+        status = self.executor.status()
+        if status != self._workers:
+            self.store.kv_set(WORKERS_KEY, status)
+            self._workers = status
+
     def _cards(self, ticket: Ticket) -> list[tuple[str, str]]:
         cards = []
         for item in ticket.undelivered():
@@ -309,4 +362,5 @@ class Runtime:
             "executor": self.executor.status(),
             "sources": {s.name: vars(s.health()) for s in self.registry},
             "outbox_problems": len(self.outbox.problems()),
+            "orchestrator": self.orchestrator.state() if self.orchestrator else {"enabled": False},
         }

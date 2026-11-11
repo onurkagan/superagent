@@ -196,10 +196,10 @@ def _int(table: dict[str, Any], key: str, default: int, where: str, minimum: int
     return value
 
 
-def _float(table: dict[str, Any], key: str, default: float, where: str) -> float:
+def _float(table: dict[str, Any], key: str, default: float, where: str, zero: bool = False) -> float:
     value = table.get(key, default)
-    if not isinstance(value, (int, float)) or isinstance(value, bool) or value <= 0:
-        raise ConfigError(f"[{where}] {key} must be a positive number")
+    if not isinstance(value, (int, float)) or isinstance(value, bool) or value < 0 or (value == 0 and not zero):
+        raise ConfigError(f"[{where}] {key} must be a {'non-negative' if zero else 'positive'} number")
     return float(value)
 
 
@@ -355,7 +355,7 @@ def parse_settings(data: dict[str, Any], base_dir: Path) -> Settings:
             route=_bool(orchestrator, "route", True, "orchestrator"),
             model=_str(orchestrator, "model", defaults.worker, "orchestrator"),
             effort=_str(orchestrator, "effort", "medium", "orchestrator", EFFORTS),
-            batch_seconds=_float(orchestrator, "batch_seconds", 3.0, "orchestrator"),
+            batch_seconds=_float(orchestrator, "batch_seconds", 3.0, "orchestrator", zero=True),
             turn_timeout_seconds=_int(orchestrator, "turn_timeout_seconds", 900, "orchestrator", minimum=60),
         ),
         policy=PolicySettings(
