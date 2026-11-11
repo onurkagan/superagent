@@ -6,12 +6,14 @@ How to install, configure, run, upgrade and troubleshoot superagent. It builds o
 
 - Python 3.11 or later.
 - Access to Claude, through either backend:
-  - `anthropic`: the Anthropic API, with `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, or `ant auth login`;
   - `claude-code`: the [Claude Code](https://code.claude.com) command line, installed and logged in. No API key is
-    needed; check that your plan allows unattended use.
+    needed; check that your plan allows unattended use. `superagent init` picks it when no API key is set;
+  - `anthropic`: the Anthropic API, with `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, or `ant auth login`.
 - For GitHub: the [GitHub CLI](https://cli.github.com) logged in (`gh auth login`) as the account the agent acts as.
-  A dedicated machine user with write access to the watched repositories is recommended, so the team can tell the
-  agent's work apart and you can revoke its access in one place.
+  For one person, your own account works: give requests with `superagent say`, since the agent ignores comments its
+  own account writes. For a team, a dedicated machine user with write access to the watched repositories is
+  recommended, so teammates can mention it, the team can tell its work apart, and you can revoke its access in one
+  place.
 - `git` on the machine, for the prepare command and the workers.
 
 ## Install
@@ -25,11 +27,23 @@ pip install -e ".[dev]"
 
 ## Configure
 
+For one person, one command writes a configuration that is ready to run:
+
+```sh
+superagent init --repo you/app --repo you/site   # your gh login, a local inbox, the orchestrator on
+superagent doctor      # checks the configuration, credentials, gh login and access to every repository
+```
+
+For a team, start from the full template and edit it:
+
 ```sh
 superagent init        # writes superagent.toml
 $EDITOR superagent.toml
-superagent doctor      # checks the configuration, credentials, gh login and access to every repository
+superagent doctor
 ```
+
+Both write `backend = "claude-code"` unless `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` is set; `--backend`
+chooses explicitly.
 
 ### Settings
 
@@ -110,19 +124,25 @@ A restart is safe at any time; see *Restart* in [003 Execution](003-execution.md
 python examples/offline_demo.py --serve
 ```
 
-runs the whole flow with a scripted model, no API key and no GitHub, and opens the panel. To talk to a real model
-locally, enable `[sources.inbox]` and use `superagent say "Please add a CONTRIBUTING.md" --as me`, then
-`superagent replies`.
+runs the whole flow with a scripted model, no API key and no GitHub, and opens the panel.
 
-Each `--thread` is its own conversation, like a GitHub issue. A new message in a conversation a Ticket already owns
-goes to that Ticket first, and its worker hands it back if it is a separate request. To start several Tickets at once,
-give each request its own thread; with `execution.concurrency` of 3 they run in three parallel sessions:
+## Giving work from the command line
+
+With `[sources.inbox]` enabled (`superagent init --repo` enables it), `superagent say` gives the agent a request and
+`superagent replies` prints its answers:
 
 ```sh
-superagent say "Add a sentences(text) function" --as me --thread sentences
-superagent say "Add a command line interface" --as me --thread cli
-superagent say "Add a readability module" --as me --thread readability
+superagent say "Add a sentences(text) function" --repo you/app
+superagent say "Add a command line interface" --repo you/app
+superagent say "Fix the broken link on the home page" --repo you/site
+superagent replies
 ```
+
+Each `say` starts its own conversation, like a new GitHub issue, so these become three Tickets that run in parallel
+worker sessions, up to `execution.concurrency` at once. `--repo` names the repository the request is about; it is
+required when more than one is watched. To add to a request, pass the conversation `say` printed with `--thread`:
+the message goes to the Ticket that owns that conversation, and its worker hands it back if it is a separate
+request.
 
 ## Upgrade
 
