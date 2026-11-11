@@ -176,6 +176,17 @@ def test_hand_back_sends_the_message_to_eval_with_the_reason(engine):
     assert candidate.eval.strength == "explicit"
 
 
+def test_hand_back_accepts_the_id_of_the_input_card(engine):
+    _, ticket = accept_one(engine)
+    follow_up = make_trigger(text="also add a CLI", addressed="")
+    engine.intake(follow_up)
+    card_id = engine.store.get(Ticket, ticket.id).inputs[-1].id
+    assert card_id != follow_up.id
+    assert engine.hand_back(ticket.id, card_id, "a separate request") == ""
+    [candidate] = engine.start_evals()
+    assert candidate.handbacks == {follow_up.id: ["a separate request"]}
+
+
 def test_hand_back_of_a_message_the_ticket_does_not_own_is_refused(engine):
     _, ticket = accept_one(engine)
     assert "does not own" in engine.hand_back(ticket.id, "github:comment:unknown", "x")

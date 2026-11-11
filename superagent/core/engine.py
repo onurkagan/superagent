@@ -159,7 +159,16 @@ class Engine:
         elif existing.context_only and not context_only:
             existing.context_only = False
 
+    @staticmethod
+    def _message_ref(ticket: Ticket, ref: str) -> str:
+        """The Trigger id a worker means. Workers may pass the id of the Input card that carried the message."""
+        for item in ticket.inputs:
+            if ref and item.id == ref and item.trigger_id:
+                return item.trigger_id
+        return ref
+
     def _channel_for(self, ticket: Ticket, trigger_id: str = "") -> ChannelRef | None:
+        trigger_id = self._message_ref(ticket, trigger_id)
         if trigger_id:
             trigger = self.store.get(Trigger, trigger_id)
             if trigger and trigger.channels:
@@ -728,6 +737,7 @@ class Engine:
             ticket = self.store.get(Ticket, ticket_id)
             if ticket is None or not ticket.live:
                 return "the ticket is not open"
+            trigger_id = self._message_ref(ticket, trigger_id)
             channel = self._channel_for(ticket, trigger_id)
             if channel is None:
                 return "the ticket has no conversation to reply to"
@@ -744,6 +754,7 @@ class Engine:
             ticket = self.store.get(Ticket, ticket_id)
             if ticket is None:
                 return "unknown ticket"
+            trigger_id = self._message_ref(ticket, trigger_id)
             item = next((i for i in ticket.inputs if i.trigger_id == trigger_id and i.owned), None)
             if item is None:
                 return "this ticket does not own that message; nothing to hand back"
