@@ -11,12 +11,16 @@ import signal
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
 from superagent import __version__
 from superagent.agents.prompts import PARTS, PromptLibrary
+from superagent.commands import call, is_error
 from superagent.config import CONFIG_TEMPLATE, ConfigError, Settings, load_settings
+from superagent.core.ids import new_id
+from superagent.orchestrator import chat_log
 from superagent.panel.data import PanelData
 from superagent.sources.inbox import append_message
 from superagent.store import Store
@@ -168,6 +172,15 @@ def cmd_status(args: argparse.Namespace) -> int:
             print(f"  [{problem['kind']}] {problem['detail']}")
     activity = ", ".join(f"{k.replace('_', ' ')} {v}" for k, v in overview["activity"].items() if v)
     print(f"\nLast 24 hours: {activity or 'no activity'}")
+    workers = overview["executor"]
+    if workers:
+        print(f"Worker sessions: {workers['running']} of {workers['concurrency']} running, "
+              f"{workers['queued']} waiting for a slot")
+    orchestrator = overview["orchestrator"]
+    if orchestrator.get("enabled"):
+        state = f"in a turn since {orchestrator['since']}" if orchestrator.get("busy") else "idle"
+        print(f"Orchestrator: {state}, {orchestrator.get('turns', 0)} turns since start"
+              + (f"; last error: {orchestrator['last_error']}" if orchestrator.get("last_error") else ""))
     return 0
 
 
@@ -223,6 +236,66 @@ def cmd_replies(args: argparse.Namespace) -> int:
         reply = json.loads(line)
         print(f"[{reply['at']}] ({reply['thread']}) {reply['text']}")
     return 0
+
+
+def _print_chat(entry: dict[str, Any]) -> None:
+    who = {"operator": "you", "orchestrator": "orchestrator"}.get(entry["role"], entry["role"])
+    print(f"[{entry['at'][11:16]}] {who}: {entry['text']}")
+
+
+def _answer(store: Store, message_id: str, timeout: float) -> dict[str, Any] | None:
+    deadline = time.monotonic() + timeout
+    while True:
+        for entry in reversed(chat_log(store)):
+            if entry["role"] == "orchestrator" and message_id in (entry.get("reply_to") or []):
+                return entry
+        if time.monotonic() >= deadline:
+            return None
+        time.sleep(1.0)
+
+
+def _chat_once(store: Store, text: str, timeout: float) -> int:
+    message_id = new_id("ch")
+    outcome = call(store, "chat", text=text, id=message_id, timeout=10)
+    if outcome is None:
+        print("superagent is not running. The message stays queued and the orchestrator reads it once superagent "
+              "runs; see `superagent chat --history` then.")
+        return 1
+    if is_error(outcome):
+        print(outcome, file=sys.stderr)
+        return 1
+    answer = _answer(store, message_id, timeout)
+    if answer is None:
+        print("No answer yet; the orchestrator may still be working. See `superagent chat --history`.")
+        return 0
+    print(f"orchestrator: {answer['text']}")
+    return 1 if answer.get("error") else 0
+
+
+def cmd_chat(args: argparse.Namespace) -> int:
+    store = _store(_settings(args))
+    if args.history:
+        entries = chat_log(store, args.limit)
+        for entry in entries:
+            _print_chat(entry)
+        if not entries:
+            print("No conversation yet.")
+        return 0
+    if args.reset:
+        outcome = call(store, "orchestrator_reset", timeout=10)
+        print(outcome or "superagent is not running; the reset waits in the queue.")
+        return 1 if is_error(outcome) else 0
+    if args.message:
+        return _chat_once(store, " ".join(args.message), args.timeout)
+    print("Talking to the orchestrator. An empty line does nothing; Ctrl-D ends.")
+    while True:
+        try:
+            line = input("you> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return 0
+        if line:
+            _chat_once(store, line, args.timeout)
 
 
 def cmd_prompts(args: argparse.Namespace) -> int:
@@ -307,6 +380,14 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("replies", help="print the latest replies of the local inbox source")
     p.add_argument("--limit", type=int, default=20)
     p.set_defaults(func=cmd_replies)
+
+    p = sub.add_parser("chat", help="talk to the orchestrator that oversees every ticket")
+    p.add_argument("message", nargs="*", help="one message; without it, an interactive conversation")
+    p.add_argument("--timeout", type=float, default=600, help="seconds to wait for an answer")
+    p.add_argument("--history", action="store_true", help="print the conversation so far")
+    p.add_argument("--limit", type=int, default=30, help="entries --history prints")
+    p.add_argument("--reset", action="store_true", help="start the orchestrator's next turn in a new session")
+    p.set_defaults(func=cmd_chat)
 
     p = sub.add_parser("prompts", help="list, show or eject prompt parts for editing")
     p.add_argument("action", choices=("list", "show", "eject"))

@@ -86,3 +86,31 @@ def test_run_reports_a_busy_panel_port_clearly(config, capsys):
         config.write_text(CONFIG + f"\n[panel]\nport = {port}\n")
         code, _, err = run(capsys, "-c", str(config), "run")
     assert code == 1 and "free port" in err
+
+
+def test_chat_history_and_a_message_while_the_agent_is_down(config, capsys, monkeypatch):
+    import superagent.cli as cli
+
+    assert "No conversation yet." in run(capsys, "-c", str(config), "chat", "--history")[1]
+    monkeypatch.setattr(cli, "call", lambda store, kind, timeout, **args: None)
+    code, out, _ = run(capsys, "-c", str(config), "chat", "what", "is", "open?")
+    assert code == 1 and "not running" in out
+
+
+def test_chat_prints_the_orchestrators_answer(config, capsys, monkeypatch):
+    import superagent.cli as cli
+    from superagent.orchestrator import CHAT_KEY
+
+    store = Store(config.parent / "state" / "superagent.db")
+
+    def fake_call(store_, kind, timeout, **args):
+        store.kv_set(CHAT_KEY, [{"id": args["id"], "role": "operator", "text": args["text"], "at": "2026-11-11T10:00"},
+                                {"id": "ch_2", "role": "orchestrator", "text": "Two tickets are open.",
+                                 "at": "2026-11-11T10:01", "reply_to": [args["id"]]}])
+        return args["id"]
+
+    monkeypatch.setattr(cli, "call", fake_call)
+    code, out, _ = run(capsys, "-c", str(config), "chat", "what is open?", "--timeout", "0")
+    assert code == 0 and "orchestrator: Two tickets are open." in out
+    history = run(capsys, "-c", str(config), "chat", "--history")[1]
+    assert "[10:00] you: what is open?" in history and "[10:01] orchestrator: Two tickets" in history
