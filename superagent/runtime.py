@@ -172,7 +172,9 @@ class Runtime:
             if error:
                 log.warning("reply of %s refused: %s", args[0], error)
         elif kind == "hand_back":
-            engine.hand_back(args[0], args[1], args[2])
+            error = engine.hand_back(args[0], args[1], args[2])
+            if error:
+                log.warning("hand-back of %s by %s refused: %s", args[1], args[0], error)
         elif kind == "follow":
             engine.follow(args[0], args[1])
         else:
