@@ -40,6 +40,12 @@ RECOVERY_NOTE = (
     "already happened."
 )
 RESUME_NOTE = "A person's message resumed this ticket after it had ended. Decide whether it fits the ticket's scope."
+NOTE_KINDS = ("orchestrator", "status")
+MAX_NOTE_CHARS = 2000
+STATUS_REQUEST = (
+    "The orchestrator asks where this ticket stands. Call `report` with your current status and a short summary; "
+    "change nothing else for this request."
+)
 
 
 @dataclass(frozen=True)
@@ -768,6 +774,27 @@ class Engine:
                     thread = self._thread(trigger.threads[0], trigger.source)
                     followup = any(not t.stopped for t in self.tickets_on(thread))
                     self._queue_for_eval(trigger, followup, reason[:300])
+        return ""
+
+    def note(self, ticket_id: str, text: str, kind: str = "orchestrator") -> str:
+        """Give a Ticket's worker a fact from other work (``orchestrator``) or ask it for its status (``status``).
+
+        A note is context: it grants nothing and never widens the Mandate. It waits like any Input, so a held Ticket
+        reads it only after a person writes or someone retries. Returns an error text, or empty on success."""
+        if kind not in NOTE_KINDS:
+            return f"unknown note kind {kind!r}"
+        text = STATUS_REQUEST if kind == "status" else text.strip()
+        if not text:
+            return "the note is empty"
+        with self.store.atomic():
+            ticket = self.store.get(Ticket, ticket_id)
+            if ticket is None or not ticket.live:
+                return "the ticket is not open"
+            if kind == "status" and any(i.kind == "status" and not i.read for i in ticket.inputs):
+                return "a status request is already waiting for this ticket"
+            self._add_input(ticket, kind, text[:MAX_NOTE_CHARS])
+            self._save(ticket)
+            self._journal("ticket.noted", ticket=ticket.id, kind=kind, text=text[:300])
         return ""
 
     def follow(self, ticket_id: str, ref: str) -> str:

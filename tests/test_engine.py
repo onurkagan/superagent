@@ -192,6 +192,30 @@ def test_hand_back_of_a_message_the_ticket_does_not_own_is_refused(engine):
     assert "does not own" in engine.hand_back(ticket.id, "github:comment:unknown", "x")
 
 
+def test_note_reaches_the_worker_as_an_input_and_grants_nothing(engine):
+    _, ticket = accept_one(engine)
+    assert engine.note(ticket.id, "Ticket add-cli also edits README.md; expect a conflict.") == ""
+    stored = engine.store.get(Ticket, ticket.id)
+    assert stored.inputs[-1].kind == "orchestrator" and "README.md" in stored.inputs[-1].text
+    assert stored.mandate == ticket.mandate
+    assert engine.store.events(limit=1)[0]["type"] == "ticket.noted"
+
+
+def test_status_request_is_not_queued_twice(engine):
+    _, ticket = accept_one(engine)
+    assert engine.note(ticket.id, "", kind="status") == ""
+    assert "already waiting" in engine.note(ticket.id, "", kind="status")
+    assert "Call `report`" in engine.store.get(Ticket, ticket.id).inputs[-1].text
+
+
+def test_note_is_refused_for_ended_tickets_and_empty_text(engine):
+    _, ticket = accept_one(engine)
+    assert engine.note(ticket.id, "   ") == "the note is empty"
+    assert engine.note(ticket.id, "x", kind="order") == "unknown note kind 'order'"
+    engine.stop(ticket.id)
+    assert engine.note(ticket.id, "too late") == "the ticket is not open"
+
+
 def test_unread_follow_ups_are_released_to_eval_when_the_ticket_ends(engine):
     _, ticket = accept_one(engine)
     follow_up = make_trigger(text="also check the changelog", addressed="")
