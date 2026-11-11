@@ -74,3 +74,15 @@ def test_version(capsys):
     with pytest.raises(SystemExit):
         main(["--version"])
     assert "superagent" in capsys.readouterr().out
+
+
+def test_run_reports_a_busy_panel_port_clearly(config, capsys):
+    import socket
+
+    with socket.socket() as busy:
+        busy.bind(("127.0.0.1", 0))
+        busy.listen()
+        port = busy.getsockname()[1]
+        config.write_text(CONFIG + f"\n[panel]\nport = {port}\n")
+        code, _, err = run(capsys, "-c", str(config), "run")
+    assert code == 1 and "free port" in err

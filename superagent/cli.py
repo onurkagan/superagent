@@ -102,11 +102,18 @@ def cmd_run(args: argparse.Namespace) -> int:
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     runtime = Runtime(settings)
-    runtime.start()
     panel = None
     if settings.panel.enabled and not args.no_panel:
-        panel = PanelServer(PanelData(runtime.store, runtime.status), settings.panel.host, settings.panel.port,
-                            settings.panel.token)
+        try:
+            panel = PanelServer(PanelData(runtime.store, runtime.status), settings.panel.host, settings.panel.port,
+                                settings.panel.token)
+        except OSError as exc:
+            print(f"cannot serve the panel on {settings.panel.host}:{settings.panel.port}: {exc.strerror or exc}. "
+                  "Set [panel] port to a free port, or run with --no-panel.", file=sys.stderr)
+            runtime.shutdown()
+            return 1
+    runtime.start()
+    if panel:
         panel.start()
         print(f"Panel: {panel.url}")
     stop = threading.Event()
