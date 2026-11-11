@@ -92,9 +92,22 @@ class SourceRegistry:
         return channel.source in self._sources
 
     def variables(self, origin: Trigger | None) -> list[Variable]:
-        """Every Source's variables; only the Source the Ticket started on sees its originating Trigger."""
-        result: list[Variable] = []
-        for source in self._sources.values():
+        """Every Source's variables; only the Source the Ticket started on sees its originating Trigger, and its
+        values win when several Sources (such as two GitHub instances) set the same key."""
+        ordered = sorted(self._sources.values(), key=lambda s: origin is not None and s.name == origin.source)
+        merged: dict[str, Variable] = {}
+        for source in ordered:
             own_origin = origin if origin is not None and origin.source == source.name else None
-            result.extend(source.variables(own_origin))
-        return result
+            for variable in source.variables(own_origin):
+                merged.pop(variable.key, None)
+                merged[variable.key] = variable
+        return list(merged.values())
+
+    def instructions(self) -> list[str]:
+        """Distinct prompt sections of the Sources, once each even when several instances share a kind."""
+        seen: list[str] = []
+        for source in self._sources.values():
+            text = source.instructions()
+            if text.strip() and text not in seen:
+                seen.append(text)
+        return seen
