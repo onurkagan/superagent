@@ -55,13 +55,16 @@ python examples/offline_demo.py --serve   # the whole flow with a scripted model
 To run it for real:
 
 ```sh
-export ANTHROPIC_API_KEY=...          # or: ant auth login
+export ANTHROPIC_API_KEY=...          # or: ant auth login, or backend = "claude-code" (no API key, see below)
 gh auth login                         # as the account the agent acts as
 superagent init                       # writes superagent.toml
 $EDITOR superagent.toml               # repositories, allowed people
 superagent doctor
 superagent run                        # panel at http://127.0.0.1:8765/
 ```
+
+No API key? Set `backend = "claude-code"` under `[model]` and superagent runs its workers and assessments through the
+`claude` command line you are already logged in to; see *Backends* in [docs/004-prompts.md](docs/004-prompts.md).
 
 Then mention the agent's account in an Issue of a watched repository, for example
 `@my-agent please add a CONTRIBUTING.md`.
