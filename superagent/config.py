@@ -7,8 +7,10 @@ never silently disables a protection.
 
 from __future__ import annotations
 
+import os
 import re
 import tomllib
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -447,6 +449,56 @@ comments = false
 [sources.inbox]
 enabled = false             # a local inbox for demos: `superagent say "..."`
 allowed = ["me"]
+
+[panel]
+host = "127.0.0.1"
+port = 8765
+'''
+
+
+def detect_backend(environ: Mapping[str, str] = os.environ) -> str:
+    """The backend ``superagent init`` writes: ``anthropic`` when an API key is set, otherwise ``claude-code``, which
+    needs no key, only the ``claude`` command line logged in (``superagent doctor`` checks it)."""
+    if environ.get("ANTHROPIC_API_KEY") or environ.get("ANTHROPIC_AUTH_TOKEN"):
+        return "anthropic"
+    return "claude-code"
+
+
+def with_backend(template: str, backend: str) -> str:
+    return template.replace('backend = "anthropic"', f'backend = "{backend}"', 1)
+
+
+def personal_config(repositories: list[str], login: str, backend: str) -> str:
+    """A ready-to-run configuration for one person: the agent works as their GitHub account on the given
+    repositories, takes requests from ``superagent say`` and runs the orchestrator."""
+    bad = [r for r in repositories if not REPOSITORY_PATTERN.fullmatch(r)]
+    if bad or not repositories:
+        raise ConfigError(f"give repositories as owner/name, not {', '.join(bad) or 'nothing'}")
+    names = ", ".join(f'"{r}"' for r in dict.fromkeys(repositories))
+    return f'''# superagent for one person. Give it work with `superagent say "..." --repo owner/name`, talk to the
+# orchestrator with `superagent chat`, and watch it at http://127.0.0.1:8765/. It opens pull requests as the account
+# `gh` is logged in as. docs/006-deployment.md describes every setting.
+state_dir = ".superagent"
+
+[model]
+backend = "{backend}"{'      # your `claude` login; no API key needed' if backend == "claude-code" else '        # an Anthropic API key; "claude-code" uses your `claude` login instead'}
+
+[execution]
+concurrency = 2             # worker sessions that run at once
+prepare = 'gh repo clone "$SUPERAGENT_GITHUB_REPOSITORY" "$SUPERAGENT_NAME" -- --quiet && git -C "$SUPERAGENT_NAME" switch -c "$SUPERAGENT_NAME"'
+
+[orchestrator]
+enabled = true              # one session that routes requests and oversees every worker session
+
+[sources.github]
+repositories = [{names}]
+# People who may ask for work by mentioning the agent's account in an Issue. While the agent uses your own
+# account, your own comments are ignored there; give work with `superagent say` instead.
+allowed = ["{login}"]
+poll_seconds = 60
+
+[sources.inbox]
+allowed = ["me"]            # `superagent say` writes as "me"
 
 [panel]
 host = "127.0.0.1"

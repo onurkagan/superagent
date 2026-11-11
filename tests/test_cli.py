@@ -41,6 +41,46 @@ def test_say_appends_to_the_inbox(config, capsys):
     assert run(capsys, "-c", str(config), "say", "please", "add", "a", "README", "--as", "me")[0] == 0
     line = json.loads((config.parent / "state" / "inbox.jsonl").read_text())
     assert line["text"] == "please add a README" and line["actor"] == "me" and line["addressed"]
+    assert line["thread"].startswith("please-add-a-readme-") and "repository" not in line
+
+
+def test_say_starts_a_conversation_per_request_and_names_the_repository(tmp_path, capsys):
+    path = tmp_path / "superagent.toml"
+    path.write_text('state_dir = "state"\n[sources.github]\nrepositories = ["acme/api", "acme/web"]\n'
+                    'allowed = ["alice"]\n[sources.inbox]\nallowed = ["me"]\n')
+    code, _, err = run(capsys, "-c", str(path), "say", "Add a README")
+    assert code == 1 and "add --repo" in err
+    assert run(capsys, "-c", str(path), "say", "Add a README", "--repo", "acme/nope")[0] == 1
+    code, out, _ = run(capsys, "-c", str(path), "say", "Add a README", "--repo", "ACME/web")
+    assert code == 0 and "Follow up with --thread" in out
+    run(capsys, "-c", str(path), "say", "Also a LICENSE", "--repo", "acme/web", "--thread", "docs")
+    first, second = [json.loads(l) for l in (tmp_path / "state" / "inbox.jsonl").read_text().splitlines()]
+    assert first["repository"] == "acme/web" and first["thread"].startswith("add-a-readme-")
+    assert second["thread"] == "docs"
+
+
+def test_init_picks_claude_code_without_an_api_key(tmp_path, capsys, monkeypatch):
+    import tomllib
+
+    import superagent.cli as cli
+    from superagent.config import parse_settings
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+    monkeypatch.setattr(cli, "_gh_login", lambda: "alice")
+    path = tmp_path / "superagent.toml"
+    code, out, _ = run(capsys, "-c", str(path), "init", "--repo", "alice/app", "--repo", "alice/site")
+    assert code == 0 and "backend claude-code" in out
+    settings = parse_settings(tomllib.loads(path.read_text()), tmp_path)
+    assert settings.model.backend == "claude-code" and settings.orchestrator.enabled
+    assert settings.github_sources[0].repositories == ("alice/app", "alice/site")
+    assert settings.github_sources[0].allowed == ("alice",) and settings.inbox is not None
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+    assert run(capsys, "-c", str(path), "init", "--force")[0] == 0
+    assert parse_settings(tomllib.loads(path.read_text()), tmp_path).model.backend == "anthropic"
+    assert run(capsys, "-c", str(path), "init", "--force", "--backend", "claude-code")[0] == 0
+    assert 'backend = "claude-code"' in path.read_text()
+    assert run(capsys, "-c", str(path), "init", "--force", "--repo", "not a repo")[0] == 2
 
 
 def test_status_and_tickets_on_an_empty_state(config, capsys):

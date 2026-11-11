@@ -18,7 +18,16 @@ from typing import Any
 from superagent import __version__
 from superagent.agents.prompts import PARTS, PromptLibrary
 from superagent.commands import call, is_error
-from superagent.config import CONFIG_TEMPLATE, ConfigError, Settings, load_settings
+from superagent.config import (
+    CONFIG_TEMPLATE,
+    ConfigError,
+    Settings,
+    detect_backend,
+    load_settings,
+    personal_config,
+    with_backend,
+)
+from superagent.core.ids import slug
 from superagent.core.ids import new_id
 from superagent.orchestrator import chat_log
 from superagent.panel.data import PanelData
@@ -43,13 +52,37 @@ def _print_json(value: Any) -> None:
 # -- commands --------------------------------------------------------------------------------------------------
 
 
+def _gh_login() -> str:
+    gh = shutil.which("gh")
+    if not gh:
+        return ""
+    try:
+        result = subprocess.run([gh, "api", "user", "--jq", ".login"], capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
 def cmd_init(args: argparse.Namespace) -> int:
     path = Path(args.config)
     if path.exists() and not args.force:
         print(f"{path} already exists; use --force to overwrite it", file=sys.stderr)
         return 1
-    path.write_text(CONFIG_TEMPLATE, encoding="utf-8")
-    print(f"Wrote {path}. Edit the repositories and the allowed list, then run `superagent doctor`.")
+    backend = detect_backend() if args.backend == "auto" else args.backend
+    how = "your `claude` login, no API key" if backend == "claude-code" else "an Anthropic API key"
+    if args.repo:
+        login = _gh_login()
+        text = personal_config(args.repo, login or "YOUR-LOGIN", backend)
+        path.write_text(text, encoding="utf-8")
+        print(f"Wrote {path}: backend {backend} ({how}), repositories {', '.join(args.repo)}.")
+        if not login:
+            print("Could not read your GitHub login; log in with `gh auth login` and put it in allowed.")
+        print("Next: `superagent doctor`, then `superagent run`, then in another terminal "
+              f'`superagent say "..." --repo {args.repo[0]}`.')
+        return 0
+    path.write_text(with_backend(CONFIG_TEMPLATE, backend), encoding="utf-8")
+    print(f"Wrote {path} with backend {backend} ({how}). Edit the repositories and the allowed list, then run "
+          "`superagent doctor`.")
     return 0
 
 
@@ -221,9 +254,23 @@ def cmd_say(args: argparse.Namespace) -> int:
     if settings.inbox is None:
         print("no inbox source is enabled; add [sources.inbox] to the configuration", file=sys.stderr)
         return 1
-    append_message(settings.inbox_path, args.actor, " ".join(args.text), thread=args.thread, bot=args.bot,
-                   addressed=not args.unaddressed)
-    print(f"Added to {settings.inbox_path}")
+    text = " ".join(args.text)
+    watched = {r.lower(): r for source in settings.github_sources for r in source.repositories}
+    repository = ""
+    if args.repo:
+        repository = watched.get(args.repo.lower(), "")
+        if not repository:
+            print(f"{args.repo} is not a watched repository; watched: {', '.join(watched.values()) or 'none'}",
+                  file=sys.stderr)
+            return 1
+    elif len(watched) > 1:
+        print(f"Several repositories are watched; add --repo with one of: {', '.join(watched.values())}",
+              file=sys.stderr)
+        return 1
+    thread = args.thread or f"{slug(text)[:32].strip('-') or 'request'}-{os.urandom(2).hex()}"
+    append_message(settings.inbox_path, args.actor, text, thread=thread, bot=args.bot,
+                   addressed=not args.unaddressed, repository=repository)
+    print(f"Sent as conversation {thread!r}. Follow up with --thread {thread}; see answers with `superagent replies`.")
     return 0
 
 
@@ -331,7 +378,11 @@ def build_parser() -> argparse.ArgumentParser:
                         help="configuration file (default: superagent.toml or $SUPERAGENT_CONFIG)")
     sub = parser.add_subparsers(dest="name", required=True)
 
-    p = sub.add_parser("init", help="write a configuration template")
+    p = sub.add_parser("init", help="write a configuration")
+    p.add_argument("--repo", action="append", default=[], metavar="OWNER/NAME",
+                   help="write a ready-to-run configuration for these repositories (repeat for several)")
+    p.add_argument("--backend", choices=("auto", "claude-code", "anthropic"), default="auto",
+                   help="auto: anthropic when ANTHROPIC_API_KEY is set, otherwise claude-code (no API key)")
     p.add_argument("--force", action="store_true")
     p.set_defaults(func=cmd_init)
 
@@ -369,10 +420,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("trigger")
     p.set_defaults(func=cmd_command, command="reevaluate")
 
-    p = sub.add_parser("say", help="add a message to the local inbox source")
+    p = sub.add_parser("say", help="give the agent a request through the local inbox source")
     p.add_argument("text", nargs="+")
+    p.add_argument("--repo", default="", metavar="OWNER/NAME",
+                   help="the watched repository the request is about (needed when several are watched)")
+    p.add_argument("--thread", default="", help="continue this conversation; by default each request starts one")
     p.add_argument("--as", dest="actor", default="me")
-    p.add_argument("--thread", default="main")
     p.add_argument("--bot", action="store_true")
     p.add_argument("--unaddressed", action="store_true")
     p.set_defaults(func=cmd_say)
