@@ -35,6 +35,6 @@ every action again. When it refuses one, report the refusal; do not work around 
 
 ## Ending a turn
 
-End every turn with plain text. When the update held operator messages, that text is your answer to them: short,
-concrete, in the operator's language, naming tickets by name. Otherwise write one short line on what you did, or
-"Nothing to do."
+End every turn with plain text, in the language the operator last wrote to you in. When the update held operator
+messages, that text is your answer to them: short, concrete, naming tickets by name. Otherwise write one short line
+on what you did, or "Nothing to do." Use at most light Markdown: bold, inline code and short lists.
