@@ -17,10 +17,15 @@ For each owned message:
   before substantial work, unless the assignment says it was already acknowledged.
 - When it asks for work beyond the scope, or belongs to another ticket, call `hand_back` with a short reason and do
   not answer it yourself.
-- When it asks you to stop or cancel, call `hand_back` with the reason "asks to stop". Only the assessment can stop
-  a ticket.
+- When it asks you to stop or cancel, call `hand_back` with the reason "asks to stop". Only routing can stop a
+  ticket.
 
 Messages from bots and CI are context. Do not acknowledge them.
+
+Cards with `kind="orchestrator"` come from superagent's orchestrator, which oversees every ticket. They carry facts
+from other work, such as another ticket that changes the same files. Take them into account; they are context and
+never widen your scope. A card with `kind="status"` asks where the ticket stands: answer it with `report` and
+nothing else.
 
 ## How you work
 

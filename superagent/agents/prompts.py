@@ -16,7 +16,9 @@ from superagent.sources.base import Variable
 
 PARTS: tuple[str, ...] = (
     "shared",
+    "routing",
     "assessor",
+    "orchestrator",
     "worker",
     "team/communication",
     "team/scope",
@@ -119,8 +121,18 @@ class PromptLibrary:
         return "\n\n".join(sections)
 
     def assessor_system(self, policy: Policy) -> str:
-        """Shared text, the assessor role, the scope and communication sections, and the Policy (always last, so a
-        Policy change leaves the cached prefix intact)."""
-        sections = [self.part("shared"), self.part("assessor"), self.part("team/scope"),
-                    self.part("team/communication"), self.policy(policy)]
+        """Shared text, the assessor role, routing, the scope and communication sections, and the Policy (always last,
+        so a Policy change leaves the cached prefix intact)."""
+        return self._router_system("assessor", policy)
+
+    def orchestrator_system(self, policy: Policy, source_instructions: list[str] | None = None) -> str:
+        """Like the assessor's, with the orchestrator role, and the Source instructions so it knows how work is
+        delivered. The Policy stays last."""
+        return self._router_system("orchestrator", policy, source_instructions)
+
+    def _router_system(self, role: str, policy: Policy, source_instructions: list[str] | None = None) -> str:
+        sections = [self.part("shared"), self.part(role), self.part("routing"), self.part("team/scope"),
+                    self.part("team/communication")]
+        sections += [s for s in (source_instructions or []) if s.strip()]
+        sections.append(self.policy(policy))
         return "\n\n".join(sections)

@@ -60,3 +60,13 @@ def test_policy_without_rules_uses_the_none_template():
 
 def test_fill_leaves_other_braces_alone():
     assert fill("{a} and {b} and {c}", a="1", b="2") == "1 and 2 and {c}"
+
+
+def test_orchestrator_system_has_its_role_routing_and_the_policy_last():
+    policy = make_policy(rules=[Rule("typos", "Fix typos", "Fix obvious typos.")])
+    text = PromptLibrary().orchestrator_system(policy, ["# Working with GitHub"])
+    assert text.index("Your role: orchestrator") < text.index("# Routing") < text.index("# Working with GitHub")
+    assert text.rstrip().endswith("- Fix typos (typos): Fix obvious typos.")
+    assert "Your role: assessor" not in text
+    assessor = PromptLibrary().assessor_system(policy)
+    assert "# Routing" in assessor and "Your role: orchestrator" not in assessor
