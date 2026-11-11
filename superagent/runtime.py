@@ -157,7 +157,7 @@ class Runtime:
                 return "queued for evaluation"
             return f"{ERROR_PREFIX}unknown message, or the gate does not admit it"
         if kind == "note":
-            error = engine.note(args["ticket"], str(args.get("text") or ""), str(args.get("kind") or "orchestrator"))
+            error = engine.note(args["ticket"], str(args.get("text") or ""), str(args.get("note_kind") or "orchestrator"))
             return f"{ERROR_PREFIX}{error}" if error else "noted"
         if kind == "notify":
             error = engine.reply(args["ticket"], str(args.get("text") or ""), "answer")
