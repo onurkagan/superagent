@@ -17,6 +17,7 @@ from importlib import resources
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+from superagent.core.ids import new_id
 from superagent.panel.data import PanelData
 
 log = logging.getLogger(__name__)
@@ -24,6 +25,7 @@ log = logging.getLogger(__name__)
 _TICKET_ACTION = re.compile(r"^/api/tickets/([\w-]+)/(stop|retry)$")
 _TICKET = re.compile(r"^/api/tickets/([\w-]+)$")
 _REEVALUATE = re.compile(r"^/api/triggers/(.+)/reevaluate$")
+MAX_CHAT_CHARS = 4000
 
 
 def make_handler(data: PanelData, token: str = "") -> type[BaseHTTPRequestHandler]:
@@ -78,7 +80,19 @@ def make_handler(data: PanelData, token: str = "") -> type[BaseHTTPRequestHandle
                 return self._json(data.threads((query.get("filter") or ["subscribed"])[0]))
             if path == "/api/events":
                 return self._json(data.events())
+            if path == "/api/orchestrator":
+                return self._json(data.orchestrator())
             return self._error(HTTPStatus.NOT_FOUND, "not found")
+
+        def _body(self) -> dict[str, Any]:
+            length = int(self.headers.get("Content-Length") or 0)
+            if not 0 < length <= MAX_CHAT_CHARS * 4:
+                return {}
+            try:
+                value = json.loads(self.rfile.read(length))
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                return {}
+            return value if isinstance(value, dict) else {}
 
         def do_POST(self) -> None:  # noqa: N802
             url = urlparse(self.path)
@@ -98,6 +112,16 @@ def make_handler(data: PanelData, token: str = "") -> type[BaseHTTPRequestHandle
             if match:
                 data.command("reevaluate", trigger=match.group(1))
                 return self._json({"queued": "reevaluate"}, HTTPStatus.ACCEPTED)
+            if path == "/api/chat":
+                text = str(self._body().get("text") or "").strip()
+                if not text or len(text) > MAX_CHAT_CHARS:
+                    return self._error(HTTPStatus.BAD_REQUEST, f"send 1 to {MAX_CHAT_CHARS} characters of text")
+                message_id = new_id("ch")
+                data.command("chat", text=text, id=message_id)
+                return self._json({"queued": "chat", "id": message_id}, HTTPStatus.ACCEPTED)
+            if path == "/api/orchestrator/reset":
+                data.command("orchestrator_reset")
+                return self._json({"queued": "orchestrator_reset"}, HTTPStatus.ACCEPTED)
             return self._error(HTTPStatus.NOT_FOUND, "not found")
 
     return Handler

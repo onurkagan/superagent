@@ -62,6 +62,16 @@
   .filters { display: flex; gap: 6px; margin: 12px 0; flex-wrap: wrap; }
   .filters button.active { border-color: var(--accent); color: var(--accent); }
   a { color: var(--accent); }
+  .chat { max-height: 380px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; margin: 10px 0; }
+  .msg { padding: 8px 12px; border-radius: 10px; max-width: 85%; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .msg.operator { align-self: flex-end; background: var(--accent); color: #fff; }
+  .msg.orchestrator { align-self: flex-start; background: var(--chip); }
+  .msg.system, .msg.error { align-self: center; font-size: 13px; color: var(--muted); background: none; }
+  .msg.error { color: var(--danger); }
+  .msg time { display: block; font-size: 11px; opacity: .7; margin-top: 2px; }
+  form.say { display: flex; gap: 8px; }
+  form.say input { flex: 1; min-width: 0; font: inherit; padding: 7px 10px; border-radius: 8px;
+                   border: 1px solid var(--line); background: var(--bg); color: var(--text); }
 </style>
 </head>
 <body>
@@ -76,6 +86,15 @@
 <main>
   <h2>Needs you</h2>
   <div id="needs"></div>
+  <h2>Orchestrator</h2>
+  <div class="card" id="orchestrator">
+    <div class="row"><h3>One session over every ticket</h3><span id="orch-state" class="pill">loading</span>
+      <span id="orch-detail" class="muted"></span></div>
+    <div id="chat" class="chat"></div>
+    <form class="say" id="say"><input id="say-text" maxlength="4000" autocomplete="off"
+      placeholder="Ask the orchestrator: what is running, which tickets overlap, stop or retry something…">
+      <button type="submit">Send</button></form>
+  </div>
   <div id="problems-wrap" hidden>
     <h2>System problems</h2>
     <div id="problems"></div>
@@ -146,6 +165,35 @@ function renderOverview(o) {
   document.getElementById("activity").innerHTML = Object.entries(o.activity).filter(([, n]) => n > 0)
     .map(([k, n]) => `<div class="stat"><b>${n}</b><span class="muted">${esc(labels[k] || k)}</span></div>`).join("")
     || `<div class="empty">No activity.</div>`;
+}
+
+function renderOrchestrator(o) {
+  const state = o.state || {};
+  const pill = document.getElementById("orch-state");
+  const form = document.getElementById("say");
+  if (!state.enabled) {
+    pill.textContent = "off"; pill.className = "pill";
+    document.getElementById("orch-detail").textContent = "";
+    document.getElementById("chat").innerHTML =
+      `<div class="empty">The orchestrator is off. Set <code>enabled = true</code> under <code>[orchestrator]</code> and restart.</div>`;
+    form.hidden = true;
+    return;
+  }
+  form.hidden = false;
+  pill.textContent = state.busy ? "working" : (state.last_error ? "last turn failed" : "idle");
+  pill.className = "pill " + (state.busy ? "warn" : (state.last_error ? "danger" : "ok"));
+  const waiting = state.waiting || {};
+  const parts = [`${state.turns || 0} turns`];
+  if (state.route) parts.push("routes new requests");
+  if (waiting.candidates) parts.push(`${waiting.candidates} candidates waiting`);
+  document.getElementById("orch-detail").textContent = parts.join(" · ");
+  const chat = document.getElementById("chat");
+  const atBottom = chat.scrollHeight - chat.scrollTop - chat.clientHeight < 30;
+  chat.innerHTML = o.chat.length ? o.chat.map((m) =>
+    `<div class="msg ${m.error ? "error" : esc(m.role)}">${esc(m.text)}<time>${when(m.at)}</time></div>`).join("")
+    + (state.busy ? `<div class="msg system">The orchestrator is working…</div>` : "")
+    : `<div class="empty">No conversation yet. The orchestrator also writes here after each turn it takes on its own.</div>`;
+  if (atBottom) chat.scrollTop = chat.scrollHeight;
 }
 
 async function renderTab() {
@@ -221,11 +269,21 @@ document.addEventListener("click", (event) => {
   else if (d.filter) { filter = d.filter; renderTab(); }
 });
 document.getElementById("close").onclick = () => document.getElementById("detail").close();
+document.getElementById("say").onsubmit = async (event) => {
+  event.preventDefault();
+  const input = document.getElementById("say-text");
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = "";
+  await fetch("/api/chat", {method: "POST", body: JSON.stringify({text}),
+    headers: {...headers, "X-Requested-By": "superagent-panel", "Content-Type": "application/json"}});
+  setTimeout(refresh, 600);
+};
 document.getElementById("pause").onclick = () => post(paused ? "/api/resume" : "/api/pause",
   paused ? "" : "Pause processing? Sources keep recording, but nothing is evaluated, delivered or sent.");
 
 async function refresh() {
-  try { renderOverview(await get("/api/overview")); await renderTab(); }
+  try { renderOverview(await get("/api/overview")); renderOrchestrator(await get("/api/orchestrator")); await renderTab(); }
   catch (error) { const s = document.getElementById("state"); s.textContent = "unreachable"; s.className = "pill danger"; }
 }
 refresh();

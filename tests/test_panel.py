@@ -128,3 +128,26 @@ def test_retry_is_offered_only_for_delivery_blocked_or_failed(engine):
     ticket.attention = ""
     engine.store.put(ticket)
     assert data.tickets()[0]["can_retry"]
+
+
+def test_chat_is_queued_for_the_orchestrator_and_its_conversation_is_served(server):
+    from superagent.orchestrator import CHAT_KEY, STATE_KEY
+
+    panel, engine = server
+    headers = {"X-Superagent-Token": "secret", "X-Requested-By": "superagent-panel"}
+    request = urllib.request.Request(panel.url + "api/chat", method="POST", headers=headers,
+                                     data=json.dumps({"text": "What is open?"}).encode())
+    with urllib.request.urlopen(request, timeout=5) as response:
+        queued = json.loads(response.read())
+    assert response.status == 202
+    [(kind, args)] = engine.store.take_commands()
+    assert kind == "chat" and args == {"text": "What is open?", "id": queued["id"]}
+    empty = urllib.request.Request(panel.url + "api/chat", method="POST", headers=headers, data=b"{}")
+    with pytest.raises(urllib.error.HTTPError) as info:
+        urllib.request.urlopen(empty, timeout=5)
+    assert info.value.code == 400
+    engine.store.kv_set(STATE_KEY, {"enabled": True, "busy": False, "turns": 1})
+    engine.store.kv_set(CHAT_KEY, [{"id": "ch_1", "role": "orchestrator", "text": "One ticket.", "at": "x"}])
+    body = json.loads(call(panel.url + "api/orchestrator?token=secret")[1])
+    assert body["state"]["turns"] == 1 and body["chat"][0]["text"] == "One ticket."
+    assert json.loads(call(panel.url + "api/overview?token=secret")[1])["orchestrator"]["enabled"]
