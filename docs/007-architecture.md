@@ -18,8 +18,11 @@ superagent/
   sources/         base.py (the Source port and registry), github.py, inbox.py
   llm/             the model port, the Anthropic client, a scripted client for tests
   agents/          prompts.py, assessor.py, tools.py, worker.py, executor.py,
-                   claude_code.py (the Claude Code backend)
-  bridge.py        MCP server giving Claude Code workers superagent's tools
+                   claude_code.py (the Claude Code backend),
+                   orchestrator.py and orchestrator_tools.py (the orchestrator's turn and tools)
+  orchestrator.py  when the orchestrator wakes and what its update holds
+  commands.py      the command queue's request and reply
+  bridge.py        MCP server giving Claude Code workers, and the orchestrator, superagent's tools
   cards.py         how Assignments and Inputs read to a worker
   runtime.py       the loop that wires everything together
   panel/           read models, HTTP server, single-page UI
@@ -33,21 +36,25 @@ superagent/
   model, a Source or the Executor.
 - Sources know nothing of Tickets; they turn events into Triggers and write to Channels.
 - Workers never touch the store. Everything they cause (a reply, a report, a hand-back) is an event on a queue.
-- Only the runtime's main thread calls the Engine. Assessments and worker turns run on threads and report back
-  through the event queue.
+- Only the runtime's main thread calls the Engine. Assessments, worker turns and orchestrator turns run on threads
+  and report back through the event queue.
+- The panel, the CLI and the orchestrator change things only through the command queue, so the Engine checks an
+  orchestrator's action exactly like a click in the panel.
 
 ## Runtime
 
 Every tick (one second by default) the runtime:
 
-1. applies commands from the panel and CLI (stop, retry, pause, resume, reevaluate);
-2. applies events from workers and assessments;
+1. applies commands from the panel, the CLI and the orchestrator, storing each outcome for a caller that waits;
+2. applies events from workers, assessments and orchestrator turns;
 3. polls every Source that is due, passing the Threads live Tickets follow, and records the Triggers;
-4. starts Evals and submits their candidates to the assessor;
+4. starts Evals and gives their candidates to the orchestrator, or to the assessor when the orchestrator does not
+   route;
 5. expires Evals past their deadline;
 6. launches pending Assignments and delivers waiting Inputs to the Executor;
-7. stops Assignments that ended;
-8. flushes the outbox.
+7. stops Assignments that ended, and publishes which worker sessions run;
+8. lets the orchestrator start a turn if something needs it;
+9. flushes the outbox.
 
 ## Engine
 
@@ -96,6 +103,7 @@ activity counts.
 | Role | Input | Output |
 | --- | --- | --- |
 | Assessor | A candidate card: the new messages, earlier messages for context, hand-back reasons, the Tickets on the Thread | A JSON object constrained by a strict schema: decision, reason, title, scope, name, acknowledgement, note, ticket id, a judgement per enabled rule |
+| Orchestrator | An update: operator messages, candidate cards, events since its last turn, running worker sessions | Tool calls that become commands; a closing text for the operator |
 | Worker | The assignment card and Input cards | Tool calls; every turn ends with `report` |
 
 ## Tests
@@ -113,6 +121,8 @@ model, immutable Mandates, follow-up ownership, store-first execution) and diffe
 
 - It is a standalone Python service with no host runtime; workers are Claude tool-use loops it runs itself.
 - One deployment watches many repositories, and several GitHub Source instances can carry different allowed lists.
-- Routing is a single structured model call per Eval rather than a long-running routing session.
+- A persistent orchestrator session routes and coordinates, as the reference's main Session does, with fewer tools
+  and none for configuration ([009 Orchestrator](009-orchestrator.md)). With it off, routing is one structured model
+  call per Eval.
 - The Feishu Source is not included; the local inbox Source takes its place for demos and tests.
 - CI results and review approvals are not yet Triggers; see [008 Cookbook](008-cookbook.md) for how to add them.
