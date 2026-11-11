@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>superagent</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --surface: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --line: #e4e4df;
+    --accent: #2f5bd3; --warn: #b4540a; --danger: #b42318; --ok: #1a7f4b; --chip: #efefea;
+    --radius: 10px; --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141413; --surface: #1d1d1b; --text: #ecece8; --muted: #9b9b94; --line: #2e2e2b;
+      --accent: #7c9cf5; --warn: #e7a35c; --danger: #f2877c; --ok: #5cc98f; --chip: #2a2a27;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 14px 20px;
+           border-bottom: 1px solid var(--line); background: var(--surface); position: sticky; top: 0; z-index: 1; }
+  header h1 { font-size: 17px; margin: 0; letter-spacing: .2px; }
+  .muted { color: var(--muted); }
+  .pill { font-size: 12px; padding: 2px 9px; border-radius: 999px; background: var(--chip); }
+  .pill.ok { color: var(--ok); } .pill.warn { color: var(--warn); } .pill.danger { color: var(--danger); }
+  header .spacer { flex: 1; }
+  main { max-width: 1040px; margin: 0 auto; padding: 20px 16px 60px; }
+  h2 { font-size: 14px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin: 28px 0 10px; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px;
+          margin-bottom: 10px; }
+  .card h3 { margin: 0 0 4px; font-size: 15px; }
+  .row { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+  .actions { display: flex; gap: 8px; margin-top: 10px; }
+  button { font: inherit; font-size: 13px; padding: 5px 12px; border-radius: 8px; border: 1px solid var(--line);
+           background: var(--surface); color: var(--text); cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.danger { color: var(--danger); }
+  .empty { color: var(--muted); padding: 6px 0; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+  .stat { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 14px; }
+  .stat b { display: block; font-size: 22px; font-variant-numeric: tabular-nums; }
+  .tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--line); margin-top: 28px; overflow-x: auto; }
+  .tabs button { border: none; border-bottom: 2px solid transparent; border-radius: 0; background: none;
+                 padding: 8px 12px; color: var(--muted); }
+  .tabs button.active { color: var(--text); border-bottom-color: var(--accent); }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  td, th { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  tr.click { cursor: pointer; } tr.click:hover td { background: var(--chip); }
+  code, .mono { font-family: var(--mono); font-size: 12.5px; }
+  pre { white-space: pre-wrap; word-break: break-word; font-family: var(--mono); font-size: 12.5px;
+        background: var(--chip); padding: 8px 10px; border-radius: 8px; margin: 6px 0; }
+  dialog { width: min(860px, calc(100vw - 32px)); max-height: 85vh; border: 1px solid var(--line);
+           border-radius: var(--radius); background: var(--surface); color: var(--text); padding: 0; }
+  dialog::backdrop { background: rgba(0, 0, 0, .35); }
+  dialog .head { display: flex; justify-content: space-between; align-items: center; padding: 14px 18px;
+                 border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--surface); }
+  dialog .body { padding: 6px 18px 18px; }
+  .filters { display: flex; gap: 6px; margin: 12px 0; flex-wrap: wrap; }
+  .filters button.active { border-color: var(--accent); color: var(--accent); }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <h1>superagent</h1>
+  <span id="state" class="pill">loading</span>
+  <span id="policy" class="muted mono"></span>
+  <span class="spacer"></span>
+  <span id="load" class="muted"></span>
+  <button id="pause">Pause processing</button>
+</header>
+<main>
+  <h2>Needs you</h2>
+  <div id="needs"></div>
+  <div id="problems-wrap" hidden>
+    <h2>System problems</h2>
+    <div id="problems"></div>
+  </div>
+  <h2>Last 24 hours</h2>
+  <div id="activity" class="stats"></div>
+  <div class="tabs" role="tablist">
+    <button data-tab="tickets" class="active">Tickets</button>
+    <button data-tab="decisions">Decisions</button>
+    <button data-tab="threads">Threads</button>
+    <button data-tab="events">Events</button>
+  </div>
+  <div id="tab"></div>
+</main>
+<dialog id="detail"><div class="head"><strong id="detail-title"></strong><button id="close">Close</button></div>
+  <div class="body" id="detail-body"></div></dialog>
+<script>
+const token = new URLSearchParams(location.search).get("token") || "";
+const headers = token ? {"X-Superagent-Token": token} : {};
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+const when = (iso) => iso ? new Date(iso).toLocaleString() : "";
+let tab = "tickets", filter = "open", paused = false;
+
+async function get(path) {
+  const response = await fetch(path, {headers});
+  if (!response.ok) throw new Error(`${path}: ${response.status}`);
+  return response.json();
+}
+async function post(path, confirmText) {
+  if (confirmText && !confirm(confirmText)) return;
+  await fetch(path, {method: "POST", headers: {...headers, "X-Requested-By": "superagent-panel"}});
+  setTimeout(refresh, 600);
+}
+
+function ticketCard(t) {
+  const question = t.attention ? `<pre>${esc(t.attention)}</pre>` : "";
+  const summary = !t.attention && t.last_report ? `<div class="muted">${esc(t.last_report.summary)}</div>` : "";
+  const prs = (t.pull_requests || []).map((p) => `<code>${esc(p)}</code>`).join(" ");
+  return `<div class="card">
+    <div class="row"><h3>${esc(t.title)}</h3><span class="pill warn">${esc(t.stage.label)}</span></div>
+    <div class="muted">${esc(t.requester)} · <code>${esc(t.thread)}</code> ${prs}</div>
+    ${question}${summary}
+    <div class="actions">
+      <button data-open="${esc(t.id)}">Details</button>
+      ${t.can_retry ? `<button data-retry="${esc(t.id)}">Retry</button>` : ""}
+      <button class="danger" data-stop="${esc(t.id)}">Stop</button>
+    </div></div>`;
+}
+
+function renderOverview(o) {
+  paused = o.paused;
+  const state = document.getElementById("state");
+  state.textContent = o.paused ? "paused" : (o.problems.length ? "problems" : "running");
+  state.className = "pill " + (o.paused ? "warn" : (o.problems.length ? "danger" : "ok"));
+  document.getElementById("pause").textContent = o.paused ? "Resume processing" : "Pause processing";
+  document.getElementById("policy").textContent = o.policy ? `policy ${o.policy}` : "";
+  const ex = o.executor;
+  document.getElementById("load").textContent = ex ? `workers ${ex.running}/${ex.concurrency} · queued ${ex.queued}` : "";
+  document.getElementById("needs").innerHTML = o.needs_person.length
+    ? o.needs_person.map(ticketCard).join("") : `<div class="empty">Nothing needs you right now.</div>`;
+  document.getElementById("problems-wrap").hidden = !o.problems.length;
+  document.getElementById("problems").innerHTML = o.problems.map((p) =>
+    `<div class="card"><span class="pill danger">${esc(p.kind)}</span> ${esc(p.detail)}
+     ${(p.triggers || []).map((id) => `<button data-reeval="${esc(id)}">Evaluate again</button>`).join(" ")}</div>`).join("");
+  const labels = {triggers: "Triggers", decisions_accept: "Accepted", decisions_ignore: "Ignored",
+    decisions_stop: "Stopped", decisions_attach: "Attached", decisions_unavailable: "Unavailable",
+    tickets_created: "Tickets created", tickets_ended: "Tickets ended", messages_sent: "Messages sent"};
+  document.getElementById("activity").innerHTML = Object.entries(o.activity).filter(([, n]) => n > 0)
+    .map(([k, n]) => `<div class="stat"><b>${n}</b><span class="muted">${esc(labels[k] || k)}</span></div>`).join("")
+    || `<div class="empty">No activity.</div>`;
+}
+
+async function renderTab() {
+  const el = document.getElementById("tab");
+  if (tab === "tickets") {
+    const rows = await get(`/api/tickets?filter=${filter}`);
+    el.innerHTML = `<div class="filters">${["open", "ended", "all"].map((f) =>
+      `<button data-filter="${f}" class="${f === filter ? "active" : ""}">${f}</button>`).join("")}</div>` +
+      (rows.length ? `<table><tr><th>Ticket</th><th>Stage</th><th>Requester</th><th>Updated</th></tr>${rows.map((t) =>
+        `<tr class="click" data-open="${esc(t.id)}"><td>${esc(t.title)}<div class="muted mono">${esc(t.name)}</div></td>
+         <td>${esc(t.stage.label)}</td><td>${esc(t.requester)} <span class="muted">(${esc(t.strength)})</span></td>
+         <td class="muted">${when(t.updated_at)}</td></tr>`).join("")}</table>` : `<div class="empty">No tickets.</div>`);
+  } else if (tab === "decisions") {
+    const rows = await get("/api/decisions");
+    el.innerHTML = rows.length ? `<table><tr><th>Decision</th><th>Thread</th><th>Reason</th><th>When</th></tr>${rows.map((d) =>
+      `<tr ${d.ticket_id ? `class="click" data-open="${esc(d.ticket_id)}"` : ""}><td>${esc(d.kind)}${d.would_accept ? " <span class='pill'>would accept</span>" : ""}
+       <div class="muted">${esc(d.strength)}${d.rules.length ? " · " + esc(d.rules.join(", ")) : ""}</div></td>
+       <td class="mono">${esc(d.thread_key)}</td><td>${esc(d.reason)}</td><td class="muted">${when(d.at)}</td></tr>`).join("")}</table>`
+      : `<div class="empty">No decisions yet.</div>`;
+  } else if (tab === "threads") {
+    const rows = await get("/api/threads?filter=all");
+    el.innerHTML = rows.length ? rows.map((t) => `<div class="card"><div class="row"><h3 class="mono">${esc(t.key)}</h3>
+      <span class="muted">${esc(t.title)}</span>${t.evaluating ? "<span class='pill warn'>evaluating</span>" : ""}
+      ${t.subscriptions.length ? `<span class="pill">${t.subscriptions.length} subscribed</span>` : ""}</div>
+      ${t.triggers.map((g) => `<div><span class="muted">${when(g.at)} · ${esc(g.actor || "system")} · ${esc(g.kind)}</span>
+        ${g.disposition ? `<span class="pill">${esc(g.disposition.kind)}${g.disposition.detail ? ": " + esc(g.disposition.detail) : ""}</span>` : ""}
+        <button data-reeval="${esc(g.id)}">Evaluate again</button><pre>${esc(g.text)}</pre></div>`).join("")}</div>`).join("")
+      : `<div class="empty">No threads yet.</div>`;
+  } else {
+    const rows = await get("/api/events");
+    el.innerHTML = `<table><tr><th>When</th><th>Event</th><th>Data</th></tr>${rows.map((e) =>
+      `<tr><td class="muted">${when(e.at)}</td><td class="mono">${esc(e.type)}</td><td class="mono">${esc(JSON.stringify(e.data))}</td></tr>`).join("")}</table>`;
+  }
+}
+
+async function openTicket(id) {
+  const t = await get(`/api/tickets/${encodeURIComponent(id)}`);
+  document.getElementById("detail-title").textContent = t.title;
+  const section = (title, html) => `<h2>${title}</h2>${html}`;
+  document.getElementById("detail-body").innerHTML =
+    `<p><span class="pill">${esc(t.stage.label)}</span> <span class="muted mono">${esc(t.id)} · ${esc(t.name)}</span></p>
+     <div class="actions">${t.can_retry ? `<button data-retry="${esc(t.id)}">Retry</button>` : ""}
+       ${t.state === "open" ? `<button class="danger" data-stop="${esc(t.id)}">Stop</button>` : ""}</div>` +
+    section("Mandate", `<p>${esc(t.mandate.scope)}</p><p class="muted">${esc(t.mandate.strength)} · ${esc(t.mandate.basis)} ·
+      requested by ${esc(t.mandate.requester)} on ${esc(t.mandate.source)} · policy <code>${esc(t.mandate.policy_version)}</code>
+      ${t.mandate.rules.length ? " · rules " + esc(t.mandate.rules.join(", ")) : ""}</p>
+      ${t.decision ? `<p class="muted">Decision: ${esc(t.decision.reason)}</p>` : ""}`) +
+    section("Reports", t.reports.length ? t.reports.slice().reverse().map((r) =>
+      `<div><span class="pill">${esc(r.status)}</span> <span class="muted">${when(r.at)}</span><pre>${esc(r.summary)}${r.question ? "\n\nQuestion: " + esc(r.question) : ""}</pre></div>`).join("")
+      : `<div class="empty">No reports yet.</div>`) +
+    section("Messages sent", t.messages.length ? t.messages.map((m) =>
+      `<div><span class="pill">${esc(m.kind)} · ${esc(m.status)}</span> <span class="muted">${esc(m.address)}</span><pre>${esc(m.text)}</pre></div>`).join("")
+      : `<div class="empty">None.</div>`) +
+    section("Inputs", t.inputs.slice().reverse().map((i) =>
+      `<div><span class="muted">${when(i.at)} · ${esc(i.kind)}${i.from ? " · " + esc(i.from) : ""}${i.owned ? " · owned" : ""}${i.read ? " · read" : (i.delivered ? " · delivered" : " · waiting")}</span>
+       <pre>${esc(i.text)}</pre></div>`).join("")) +
+    section("Assignments", `<table>${t.assignments.slice().reverse().map((a) =>
+      `<tr><td class="mono">${esc(a.id)}</td><td>${esc(a.state)}</td><td class="muted">${esc(a.end_reason)}</td><td class="muted">${when(a.created_at)}</td></tr>`).join("")}</table>`);
+  const dialog = document.getElementById("detail");
+  if (!dialog.open) dialog.showModal();
+}
+
+document.addEventListener("click", (event) => {
+  const target = event.target.closest("[data-open],[data-stop],[data-retry],[data-reeval],[data-tab],[data-filter]");
+  if (!target) return;
+  const d = target.dataset;
+  if (d.open) openTicket(d.open);
+  else if (d.stop) post(`/api/tickets/${encodeURIComponent(d.stop)}/stop`, "Stop this ticket? Its mandate is withdrawn and it receives nothing more.");
+  else if (d.retry) post(`/api/tickets/${encodeURIComponent(d.retry)}/retry`);
+  else if (d.reeval) post(`/api/triggers/${encodeURIComponent(d.reeval)}/reevaluate`, "Send this message to evaluation again?");
+  else if (d.tab) { tab = d.tab; document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("active", b === target)); renderTab(); }
+  else if (d.filter) { filter = d.filter; renderTab(); }
+});
+document.getElementById("close").onclick = () => document.getElementById("detail").close();
+document.getElementById("pause").onclick = () => post(paused ? "/api/resume" : "/api/pause",
+  paused ? "" : "Pause processing? Sources keep recording, but nothing is evaluated, delivered or sent.");
+
+async function refresh() {
+  try { renderOverview(await get("/api/overview")); await renderTab(); }
+  catch (error) { const s = document.getElementById("state"); s.textContent = "unreachable"; s.className = "pill danger"; }
+}
+refresh();
+setInterval(() => { if (!document.getElementById("detail").open) refresh(); }, 5000);
+</script>
+</body>
+</html>
