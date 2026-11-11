@@ -84,11 +84,11 @@ def test_problem_message_stops_holding_back_the_conversation():
     outbox, sender_for, clock = make(sender)
     outbox.send(msg("m1", "ack"))
     outbox.send(msg("m2", "result"))
-    for _ in range(3):
+    for _ in range(2):
         outbox.flush(sender_for)
         assert sender.sent == []
         clock.now += 1000
-    outbox.flush(sender_for)
+    outbox.flush(sender_for)  # the third failure turns m1 into a problem, which releases m2
     assert sender.sent == [("issue:1", "result")]
     assert outbox.status("m1") == "pending"
 
