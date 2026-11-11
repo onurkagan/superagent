@@ -464,11 +464,11 @@ class Engine:
             other = self._thread(key, lead.source)
             self._subscribe(other, ticket.id)
             self.store.put(other)
-        self._save(ticket)
         decision = replace(decision, ticket_id=ticket.id)
         if outcome.acknowledgement:
-            self._queue_message(self._channel_for(ticket, lead.id), outcome.acknowledgement, "acknowledgement",
-                                ticket.id)
+            ticket.acknowledged = bool(self._queue_message(self._channel_for(ticket, lead.id), outcome.acknowledgement,
+                                                           "acknowledgement", ticket.id))
+        self._save(ticket)
         self._journal("ticket.created", ticket=ticket.id, name=ticket.name, strength=mandate.strength)
         return decision
 

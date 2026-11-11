@@ -188,6 +188,7 @@ class Ticket:
     closed_pull_requests: dict[str, str] = field(default_factory=dict)
     delivery_failures: int = 0
     human_since_report: bool = False
+    acknowledged: bool = False
     created_at: str = ""
     updated_at: str = ""
 

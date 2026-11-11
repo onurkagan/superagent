@@ -33,7 +33,7 @@ def test_explicit_request_becomes_ticket_with_mandate_subscription_and_acknowled
     thread = engine.store.get(Thread, "github:issue:1")
     assert thread.subscription(ticket.id) is not None and not thread.queued and not thread.eval_id
     assert engine.store.get(Assignment, ticket.assignment_id).state == "pending"
-    assert messages(engine)[0]["kind"] == "acknowledgement"
+    assert messages(engine)[0]["kind"] == "acknowledgement" and ticket.acknowledged
     assert engine.disposition(trigger.id)["kind"] == "decided"
 
 
