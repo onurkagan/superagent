@@ -18,6 +18,15 @@ Opening the panel answers, in this order:
    Assignments.
 
 Thread keys name the repository (`github:acme/api#12`), so Tickets of every watched repository share one list.
+The header shows how many worker sessions run out of `execution.concurrency` and how many wait for a slot.
+
+## Orchestrator
+
+Below *Needs you*, the *Orchestrator* section is the conversation with the session that oversees every ticket (see
+[009 Orchestrator](009-orchestrator.md)): what you asked, what it answered, and one line for each turn it took on its
+own, such as routing a request or telling a worker about an overlapping pull request. A pill says whether it is idle,
+working, or whether its last turn failed. Write in the box to ask it something or to tell it to act; the answer
+appears when its turn ends. When the orchestrator is off, the section says how to turn it on.
 
 ## Actions
 
@@ -27,9 +36,10 @@ Thread keys name the repository (`github:acme/api#12`), so Tickets of every watc
 | Retry | Starts a new Assignment for an undelivered, blocked or failed Ticket |
 | Pause / Resume processing | Stops or resumes Evals, launches, deliveries and outgoing messages |
 | Evaluate again / as new work | Sends a Trigger to Eval, such as a follow-up a Ticket owns that should be new work |
+| Send (Orchestrator) | Gives the orchestrator a message; it answers after its next turn |
 
 Actions are queued as commands and applied by the running agent on its next tick. The CLI offers the same commands:
-`superagent stop`, `retry`, `pause`, `resume` and `reevaluate`.
+`superagent stop`, `retry`, `pause`, `resume`, `reevaluate` and `chat`.
 
 ## Access
 
