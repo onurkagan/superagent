@@ -50,3 +50,11 @@ def test_waiting_report_is_idle():
 
 def test_otherwise_working():
     assert ticket_stage(ticket(reports=[Report("progress", "half way")]), running).name == "working"
+
+
+def test_waiting_after_a_ready_pull_request_still_awaits_review():
+    reports = [Report("ready", "PR open", pull_request="u"), Report("waiting", "waiting for review")]
+    assert ticket_stage(ticket(reports=reports, pull_requests=["github:o/r#2"]), running).name == "review"
+    merged = ticket(reports=reports, pull_requests=["github:o/r#2"], closed_pull_requests={"github:o/r#2": "merged"})
+    assert ticket_stage(merged, running).name == "idle"
+    assert ticket_stage(ticket(reports=reports[1:], pull_requests=["github:o/r#2"]), running).name == "idle"

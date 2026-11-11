@@ -32,6 +32,15 @@ class Stage:
         return self.group == "person"
 
 
+def _still_ready(ticket: Ticket) -> bool:
+    """A worker that reported ``ready`` with a pull request and later only ``waiting`` (after a note or a status
+    request, say) still has that pull request ready for review."""
+    last = ticket.last_report
+    open_pull_requests = [k for k in ticket.pull_requests if k not in ticket.closed_pull_requests]
+    return bool(last and last.status == "waiting" and open_pull_requests
+                and any(r.status == "ready" for r in ticket.reports))
+
+
 def ticket_stage(ticket: Ticket, assignment: Assignment | None) -> Stage:
     if not ticket.live:
         return Stage("ended", ticket.outcome or "ended", OUTCOME_LABELS.get(ticket.outcome, "Ended"))
@@ -40,7 +49,7 @@ def ticket_stage(ticket: Ticket, assignment: Assignment | None) -> Stage:
     if ticket.attention:
         return Stage("person", "answer", "Awaiting answer")
     last = ticket.last_report
-    if last and last.status == "ready":
+    if last and (last.status == "ready" or _still_ready(ticket)):
         return Stage("person", "review", "Awaiting review")
     if ticket.held and last:
         return Stage("person", last.status, "Blocked" if last.status == "blocked" else "Failed")
