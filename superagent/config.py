@@ -481,7 +481,7 @@ def personal_config(repositories: list[str], login: str, backend: str) -> str:
 state_dir = ".superagent"
 
 [model]
-backend = "{backend}"{'      # your `claude` login; no API key needed' if backend == "claude-code" else '        # an Anthropic API key; "claude-code" uses your `claude` login instead'}
+backend = "{backend}"{'     # your `claude` login; no API key needed' if backend == "claude-code" else '       # an Anthropic API key; "claude-code" uses your `claude` login instead'}
 
 [execution]
 concurrency = 2             # worker sessions that run at once
