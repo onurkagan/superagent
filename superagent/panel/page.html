@@ -46,7 +46,8 @@
                  padding: 8px 12px; color: var(--muted); }
   .tabs button.active { color: var(--text); border-bottom-color: var(--accent); }
   table { width: 100%; border-collapse: collapse; font-size: 14px; }
-  td, th { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  td, th { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top;
+           overflow-wrap: anywhere; }
   th { color: var(--muted); font-weight: 500; font-size: 12px; }
   tr.click { cursor: pointer; } tr.click:hover td { background: var(--chip); }
   code, .mono { font-family: var(--mono); font-size: 12.5px; }
@@ -171,7 +172,8 @@ async function renderTab() {
       ${t.subscriptions.length ? `<span class="pill">${t.subscriptions.length} subscribed</span>` : ""}</div>
       ${t.triggers.map((g) => `<div><span class="muted">${when(g.at)} · ${esc(g.actor || "system")} · ${esc(g.kind)}</span>
         ${g.disposition ? `<span class="pill">${esc(g.disposition.kind)}${g.disposition.detail ? ": " + esc(g.disposition.detail) : ""}</span>` : ""}
-        <button data-reeval="${esc(g.id)}">Evaluate again</button><pre>${esc(g.text)}</pre></div>`).join("")}</div>`).join("")
+        ${g.disposition && g.disposition.kind === "delivered" ? `<button data-reeval="${esc(g.id)}">Evaluate as new work</button>` : ""}
+        <pre>${esc(g.text)}</pre></div>`).join("")}</div>`).join("")
       : `<div class="empty">No threads yet.</div>`;
   } else {
     const rows = await get("/api/events");
