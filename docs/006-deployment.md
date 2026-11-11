@@ -112,6 +112,16 @@ runs the whole flow with a scripted model, no API key and no GitHub, and opens t
 locally, enable `[sources.inbox]` and use `superagent say "Please add a CONTRIBUTING.md" --as me`, then
 `superagent replies`.
 
+Each `--thread` is its own conversation, like a GitHub issue. A new message in a conversation a Ticket already owns
+goes to that Ticket first, and its worker hands it back if it is a separate request. To start several Tickets at once,
+give each request its own thread; with `execution.concurrency` of 3 they run in three parallel sessions:
+
+```sh
+superagent say "Add a sentences(text) function" --as me --thread sentences
+superagent say "Add a command line interface" --as me --thread cli
+superagent say "Add a readability module" --as me --thread readability
+```
+
 ## Upgrade
 
 Pull the new version and reinstall. Prompt overrides are kept; parts you did not override follow the new defaults.
