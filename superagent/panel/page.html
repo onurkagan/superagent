@@ -116,6 +116,7 @@ const token = new URLSearchParams(location.search).get("token") || "";
 const headers = token ? {"X-Superagent-Token": token} : {};
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
 const when = (iso) => iso ? new Date(iso).toLocaleString() : "";
+const md = (v) => esc(v).replace(/`([^`\n]+)`/g, "<code>$1</code>").replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>");
 let tab = "tickets", filter = "open", paused = false;
 
 async function get(path) {
@@ -190,7 +191,7 @@ function renderOrchestrator(o) {
   const chat = document.getElementById("chat");
   const atBottom = chat.scrollHeight - chat.scrollTop - chat.clientHeight < 30;
   chat.innerHTML = o.chat.length ? o.chat.map((m) =>
-    `<div class="msg ${m.error ? "error" : esc(m.role)}">${esc(m.text)}<time>${when(m.at)}</time></div>`).join("")
+    `<div class="msg ${m.error ? "error" : esc(m.role)}">${md(m.text)}<time>${when(m.at)}</time></div>`).join("")
     + (state.busy ? `<div class="msg system">The orchestrator is working…</div>` : "")
     : `<div class="empty">No conversation yet. The orchestrator also writes here after each turn it takes on its own.</div>`;
   if (atBottom) chat.scrollTop = chat.scrollHeight;
