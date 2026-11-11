@@ -40,6 +40,7 @@ class WorkerSpec:
     blocked_commands: tuple[str, ...] = ()
     max_steps: int = 200
     max_tokens: int = 16000
+    turn_timeout_seconds: int = 3600
 
 
 class WorkerEvents(Protocol):
