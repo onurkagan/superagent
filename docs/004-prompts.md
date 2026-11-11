@@ -10,8 +10,10 @@ a part by putting a file with the same relative path into `<state_dir>/prompts/`
 
 | Part | Holds |
 | --- | --- |
-| `shared` | Principles both roles follow |
-| `assessor` | How to judge candidates and write an accept |
+| `shared` | Principles every role follows |
+| `routing` | How to decide a candidate and write an accept; read by the assessor and the orchestrator |
+| `assessor` | The assessor's role: one candidate, one JSON answer |
+| `orchestrator` | The orchestrator's role: what it receives, coordinating workers, when to stay quiet |
 | `worker` | How to own a ticket, handle follow-ups and report |
 | `team/communication` | When and how to message people, review etiquette, automated reviewer accounts |
 | `team/scope` | When a ticket goes all the way and when it stops with a draft |
@@ -37,8 +39,9 @@ The worker's system prompt is, in order: `shared`, `worker`, the three team part
 `github`), `environment`, and, for a proactive Ticket, the rules it was accepted under. Assignments and messages arrive
 as `<input>` cards that carry the original text, not a summary.
 
-The assessor's system prompt is `shared`, `assessor`, `team/scope`, `team/communication` and `policy`, which comes last
-so that a Policy change leaves the cached beginning of the prompt untouched.
+The assessor's system prompt is `shared`, `assessor`, `routing`, `team/scope`, `team/communication` and `policy`,
+which comes last so that a Policy change leaves the cached beginning of the prompt untouched. The orchestrator's is
+the same with `orchestrator` in place of `assessor`; see [009 Orchestrator](009-orchestrator.md).
 
 Prompt files are read whenever an assessment runs and whenever a worker turn starts, so an edit takes effect without a
 restart: at the next assessment, and at each Ticket's next turn.
@@ -57,8 +60,8 @@ Editing a prompt changes what the model reads. It never changes the gate, the Ma
 
 ## Principles of the built-in text
 
-- **Separate roles.** The assessor only routes: it forwards the original messages and never plans the implementation.
-  The worker reads the sources, judges the scope, implements and verifies.
+- **Separate roles.** Routing forwards the original messages and never plans the implementation. The orchestrator
+  coordinates and never touches code. The worker reads the sources, judges the scope, implements and verifies.
 - **Message only when a person must act or can use a result.** Confirm a request once; send a result when it is
   ready; ask one concrete question when blocked. Keep technical detail in the pull request.
 - **Workers own their follow-ups** and hand back what lies beyond their Ticket.
