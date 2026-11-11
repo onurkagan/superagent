@@ -56,10 +56,10 @@ the right code. The concurrency limit applies across all repositories.
 
 Before the first Assignment, if the directory does not exist yet, the `prepare` command runs once with `sh` in the
 work root, with the execution variables in its environment. A typical command clones the Ticket's repository into
-the directory and creates the branch:
+the directory with `gh`, which also works for private repositories, and creates the branch:
 
 ```sh
-git clone --quiet "https://github.com/$SUPERAGENT_GITHUB_REPOSITORY.git" "$SUPERAGENT_NAME" \
+gh repo clone "$SUPERAGENT_GITHUB_REPOSITORY" "$SUPERAGENT_NAME" -- --quiet \
   && git -C "$SUPERAGENT_NAME" switch -c "$SUPERAGENT_NAME"
 ```
 

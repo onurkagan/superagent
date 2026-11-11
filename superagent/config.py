@@ -373,7 +373,7 @@ base_url = ""               # empty: ANTHROPIC_BASE_URL or the Anthropic API
 concurrency = 2
 # Runs once in the work root before a ticket's first assignment. $SUPERAGENT_NAME is the ticket's short name and
 # $SUPERAGENT_GITHUB_REPOSITORY the repository the ticket belongs to.
-prepare = 'git clone --quiet "https://github.com/$SUPERAGENT_GITHUB_REPOSITORY.git" "$SUPERAGENT_NAME" && git -C "$SUPERAGENT_NAME" switch -c "$SUPERAGENT_NAME"'
+prepare = 'gh repo clone "$SUPERAGENT_GITHUB_REPOSITORY" "$SUPERAGENT_NAME" -- --quiet && git -C "$SUPERAGENT_NAME" switch -c "$SUPERAGENT_NAME"'
 blocked_commands = ["sudo", "shutdown", "reboot", "mkfs", "dd"]
 max_steps = 200
 

@@ -75,7 +75,7 @@ worker_effort = "high"
 
 [execution]
 concurrency = 3
-prepare = 'git clone --quiet "https://github.com/$SUPERAGENT_GITHUB_REPOSITORY.git" "$SUPERAGENT_NAME" && git -C "$SUPERAGENT_NAME" switch -c "$SUPERAGENT_NAME"'
+prepare = 'gh repo clone "$SUPERAGENT_GITHUB_REPOSITORY" "$SUPERAGENT_NAME" -- --quiet && git -C "$SUPERAGENT_NAME" switch -c "$SUPERAGENT_NAME"'
 
 [policy]
 mode = "observe"
