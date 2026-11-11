@@ -4,8 +4,10 @@ A proactive coding agent for your team's GitHub repositories, powered by Claude.
 
 superagent watches any number of repositories. When someone on the team mentions it in an Issue or pull request, it
 decides whether that is a request for work, opens a ticket, works on it in its own directory with its own Claude
-session, and answers in the original conversation, usually with a pull request. A small web panel shows only what
-needs a person.
+session, and answers in the original conversation, usually with a pull request. Many tickets run at once, and one
+**orchestrator** session oversees all of them: it routes new requests, tells workers when their work overlaps,
+restarts what failed for a passing reason, and answers you when you ask what is going on. A small web panel shows
+only what needs a person, and lets you talk to the orchestrator.
 
 It is built around one rule: **take as little human attention as possible, and give as much value as possible.**
 The agent acts only when asked or when a rule the team wrote allows it, confirms a request once, stays quiet while it
@@ -20,13 +22,21 @@ works, and speaks again only with a result, one concrete question, or an honest 
 ```mermaid
 flowchart LR
   GH[GitHub repositories] -->|Triggers| T[Threads]
-  T -->|deterministic gate| E[Eval: Claude assessment]
+  T -->|deterministic gate| O[Orchestrator: one persistent Claude session]
   T -->|follow-ups| K
-  E -->|accept with a Mandate| K[Ticket]
-  K -->|Assignment| W[Worker: Claude tool loop in its own directory]
+  O -->|accept with a Mandate| K[Tickets]
+  O -->|notes, status requests, retries| K
+  K -->|Assignments| W[Workers: one Claude session per ticket, in parallel]
   W -->|reply / report| K
+  K -->|reports| O
   K -->|comments, questions| GH
+  You -->|superagent chat, panel| O
 ```
+
+- **One orchestrator over every session.** A persistent Claude session sees every ticket, worker session and
+  conversation across all repositories. It routes new requests, sends a worker a note when another ticket changes the
+  same files, asks idle workers for their status, retries passing failures, and answers you in `superagent chat` and
+  the panel. It acts only through commands the Engine checks; see [docs/009-orchestrator.md](docs/009-orchestrator.md).
 
 - **A gate before any model.** Who may ask for work is checked by code from each Source's allowed list, bot list and
   admission table. No message, comment or prompt can widen it.
@@ -34,9 +44,9 @@ flowchart LR
   relied on and the policy version. Wider scope needs a new Ticket.
 - **Follow-ups go to the work they belong to.** A person's comment on a Ticket's Issue or pull request reaches that
   Ticket's worker directly; the worker handles it or hands it back. Ended Tickets resume when a person writes again.
-- **Many repositories, one agent.** One deployment watches any number of repositories; Tickets of different
-  repositories run side by side, each with the right repository in its environment. Groups of repositories can have
-  different allowed lists.
+- **Many repositories, many sessions, one agent.** One deployment watches any number of repositories. Tickets run in
+  parallel worker sessions (`execution.concurrency`), each with the right repository in its environment. Groups of
+  repositories can have different allowed lists.
 - **Store first, act after.** Decisions, launches, Inputs and outgoing messages are stored before they happen, so a
   restart loses and repeats nothing.
 - **A panel that answers three questions:** what needs me, is the system healthy, and what happened to one piece of
@@ -78,6 +88,9 @@ worker_effort = "high"
 
 [execution]
 concurrency = 3
+
+[orchestrator]
+enabled = true
 prepare = 'gh repo clone "$SUPERAGENT_GITHUB_REPOSITORY" "$SUPERAGENT_NAME" -- --quiet && git -C "$SUPERAGENT_NAME" switch -c "$SUPERAGENT_NAME"'
 
 [policy]
@@ -107,6 +120,7 @@ such as when to stop with a draft or what a pull request must contain, lives in 
 | `superagent init` / `doctor` | Write a configuration template / check it, credentials and repository access |
 | `superagent run` | Run the agent and its panel |
 | `superagent status` | What needs you, problems, the last 24 hours |
+| `superagent chat ["..."]` | Talk to the orchestrator: ask what runs, which tickets overlap, or tell it to act |
 | `superagent tickets [--all]`, `show <id>` | List tickets / show one in detail |
 | `superagent stop <id>`, `retry <id>` | Stop a ticket / retry a blocked or failed one |
 | `superagent pause`, `resume`, `reevaluate <trigger>` | Control processing |
@@ -126,6 +140,7 @@ Read the numbered documents in order; each builds only on the ones before it.
 - [006 Deployment](docs/006-deployment.md)
 - [007 Architecture](docs/007-architecture.md)
 - [008 Cookbook: adding a Source](docs/008-cookbook.md)
+- [009 Orchestrator](docs/009-orchestrator.md)
 
 ## Development
 
