@@ -187,6 +187,9 @@ class Store:
         self.execute("INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
                      (key, json.dumps(value)))
 
+    def kv_delete(self, key: str) -> None:
+        self.execute("DELETE FROM kv WHERE key = ?", (key,))
+
     # -- event journal -----------------------------------------------------------------------------------------
 
     def journal(self, event_type: str, data: dict[str, Any]) -> None:
