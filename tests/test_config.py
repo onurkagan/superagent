@@ -30,6 +30,7 @@ def test_template_parses_with_several_repositories():
     assert settings.policy.rules[0].id == "dependency-updates" and not settings.policy.rules[0].enabled
     assert "$SUPERAGENT_GITHUB_REPOSITORY" in settings.execution.prepare
     assert list(settings.sources()) == ["github"]
+    assert settings.orchestrator.enabled and settings.orchestrator.route
 
 
 def test_named_instances_have_their_own_kind_and_policy():
@@ -65,6 +66,8 @@ def test_policy_is_built_from_enabled_sources():
     ({**MINIMAL, "policy": {"mode": "yolo"}}, "must be one of"),
     ({**MINIMAL, "model": {"worker_effort": "extreme"}}, "must be one of"),
     ({**MINIMAL, "execution": {"concurrency": 0}}, "at least 1"),
+    ({**MINIMAL, "orchestrator": {"effort": "huge"}}, "must be one of"),
+    ({**MINIMAL, "orchestrator": {"enable": True}}, "unknown setting"),
     ({"sources": {"github": {"repositories": ["nope"]}}}, "owner/name"),
     ({"sources": {"github": {"repositories": []}}}, "at least one repository"),
     ({"sources": {"github": {"repositories": ["o/r", "O/R"]}}}, "twice"),
@@ -106,3 +109,12 @@ def test_backend_and_turn_timeout_settings():
     assert parse(MINIMAL).model.backend == "anthropic"
     with pytest.raises(ConfigError, match="must be one of"):
         parse({**MINIMAL, "model": {"backend": "carrier-pigeon"}})
+
+
+def test_orchestrator_is_off_unless_configured():
+    assert not parse(MINIMAL).orchestrator.enabled
+    settings = parse({**MINIMAL, "orchestrator": {"enabled": True, "route": False, "effort": "high",
+                                                  "batch_seconds": 0.5}})
+    assert settings.orchestrator.enabled and not settings.orchestrator.route
+    assert settings.orchestrator.effort == "high" and settings.orchestrator.batch_seconds == 0.5
+    assert settings.orchestrator.model == "claude-opus-5-5"

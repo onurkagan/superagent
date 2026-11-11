@@ -49,6 +49,16 @@ class ExecutionSettings:
 
 
 @dataclass
+class OrchestratorSettings:
+    enabled: bool = False
+    route: bool = True
+    model: str = DEFAULT_MODEL
+    effort: str = "medium"
+    batch_seconds: float = 3.0
+    turn_timeout_seconds: int = 900
+
+
+@dataclass
 class PolicySettings:
     mode: str = "observe"
     eval_timeout_seconds: int = 600
@@ -98,6 +108,7 @@ class Settings:
     state_dir: str = ".superagent"
     model: ModelSettings = field(default_factory=ModelSettings)
     execution: ExecutionSettings = field(default_factory=ExecutionSettings)
+    orchestrator: OrchestratorSettings = field(default_factory=OrchestratorSettings)
     policy: PolicySettings = field(default_factory=PolicySettings)
     source_configs: dict[str, SourceSettings] = field(default_factory=dict)
     panel: PanelSettings = field(default_factory=PanelSettings)
@@ -306,12 +317,14 @@ def _rules(items: Any) -> list[Rule]:
 
 
 def parse_settings(data: dict[str, Any], base_dir: Path) -> Settings:
-    _take(data, "top level", {"state_dir", "model", "execution", "policy", "sources", "panel"})
+    _take(data, "top level", {"state_dir", "model", "execution", "orchestrator", "policy", "sources", "panel"})
     model = _take(data.get("model", {}), "model",
                   {"backend", "claude_command", "worker", "assessor", "worker_effort", "assessor_effort",
                    "fallbacks", "base_url"})
     execution = _take(data.get("execution", {}), "execution",
                       {"root", "concurrency", "prepare", "blocked_commands", "max_steps", "turn_timeout_seconds"})
+    orchestrator = _take(data.get("orchestrator", {}), "orchestrator",
+                         {"enabled", "route", "model", "effort", "batch_seconds", "turn_timeout_seconds"})
     policy = _take(data.get("policy", {}), "policy", {"mode", "eval_timeout_seconds", "rules"})
     sources = data.get("sources", {})
     panel = _take(data.get("panel", {}), "panel", {"enabled", "host", "port", "token"})
@@ -336,6 +349,14 @@ def parse_settings(data: dict[str, Any], base_dir: Path) -> Settings:
             blocked_commands=_strings(execution, "blocked_commands", DEFAULT_BLOCKED_COMMANDS, "execution"),
             max_steps=_int(execution, "max_steps", 200, "execution", minimum=1),
             turn_timeout_seconds=_int(execution, "turn_timeout_seconds", 3600, "execution", minimum=60),
+        ),
+        orchestrator=OrchestratorSettings(
+            enabled=_bool(orchestrator, "enabled", False, "orchestrator"),
+            route=_bool(orchestrator, "route", True, "orchestrator"),
+            model=_str(orchestrator, "model", defaults.worker, "orchestrator"),
+            effort=_str(orchestrator, "effort", "medium", "orchestrator", EFFORTS),
+            batch_seconds=_float(orchestrator, "batch_seconds", 3.0, "orchestrator"),
+            turn_timeout_seconds=_int(orchestrator, "turn_timeout_seconds", 900, "orchestrator", minimum=60),
         ),
         policy=PolicySettings(
             mode=_str(policy, "mode", "observe", "policy", ACCEPT_MODES),
@@ -388,6 +409,16 @@ prepare = 'gh repo clone "$SUPERAGENT_GITHUB_REPOSITORY" "$SUPERAGENT_NAME" -- -
 blocked_commands = ["sudo", "shutdown", "reboot", "mkfs", "dd"]
 max_steps = 200             # anthropic backend: model steps per turn
 turn_timeout_seconds = 3600 # claude-code backend: longest turn
+
+# One persistent session that oversees every ticket and worker session: it routes new requests, coordinates
+# workers whose work overlaps, retries passing failures, and answers you in `superagent chat` and the panel.
+[orchestrator]
+enabled = true
+route = true                # the orchestrator routes candidates; false: one assessment call per candidate
+model = "claude-opus-5-5"
+effort = "medium"
+batch_seconds = 3           # wait this long for more news before a turn
+turn_timeout_seconds = 900
 
 [policy]
 mode = "observe"            # off | observe | auto: what happens to proactive (inferred) candidates
