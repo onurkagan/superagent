@@ -15,9 +15,10 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from superagent.agents.assessor import Assessor
+from superagent.agents.claude_code import ClaudeCodeCLI, ClaudeCodeModelClient, claude_code_turn
 from superagent.agents.executor import Executor
 from superagent.agents.prompts import PromptLibrary
-from superagent.agents.worker import WorkerSpec
+from superagent.agents.worker import WorkerSpec, run_turn
 from superagent.cards import assignment_card, input_card
 from superagent.config import GitHubSettings, InboxSettings, Settings
 from superagent.core.engine import Candidate, Engine, Outcome
@@ -63,17 +64,24 @@ class Runtime:
         self.settings = settings
         self.store = store or Store(settings.db_path)
         self.prompts = PromptLibrary(settings.prompts_dir)
-        self.client = client or AnthropicModelClient(base_url=settings.model.base_url,
-                                                     fallbacks=settings.model.fallbacks)
+        worker_client: Any
+        if settings.model.backend == "claude-code":
+            cli = ClaudeCodeCLI(settings.model.claude_command)
+            self.client = client or ClaudeCodeModelClient(cli)
+            worker_client, turn = cli, claude_code_turn
+        else:
+            self.client = client or AnthropicModelClient(base_url=settings.model.base_url,
+                                                         fallbacks=settings.model.fallbacks)
+            worker_client, turn = self.client, run_turn
         self.registry = SourceRegistry(sources if sources is not None else build_sources(settings, self.store,
                                                                                          self.prompts))
         self.outbox = Outbox(self.store)
         self.engine = Engine(self.store, settings.build_policy(), self.outbox, listens=self.registry.listens,
                              resolve_thread=self.registry.resolve_thread)
         self.events: queue.Queue = queue.Queue()
-        self.executor = Executor(self.client, self.events, root=settings.work_root, prepare=settings.execution.prepare,
-                                 concurrency=settings.execution.concurrency,
-                                 resolve_thread=self.registry.resolve_thread)
+        self.executor = Executor(worker_client, self.events, root=settings.work_root,
+                                 prepare=settings.execution.prepare, concurrency=settings.execution.concurrency,
+                                 resolve_thread=self.registry.resolve_thread, run=turn)
         self.assessor = Assessor(self.client, self.prompts, settings.model.assessor, settings.model.assessor_effort)
         self.clock = clock
         self._assessments = ThreadPoolExecutor(max_workers=2, thread_name_prefix="assessor")
@@ -222,7 +230,7 @@ class Runtime:
             ticket_id=ticket.id, assignment_id=assignment.id, name=ticket.name, directory=directory,
             session_path=settings.sessions_dir / f"{ticket.id}.json", system=system, model=settings.model.worker,
             effort=settings.model.worker_effort, env={v.key: v.value for v in variables}, blocked_commands=blocked,
-            max_steps=settings.execution.max_steps,
+            max_steps=settings.execution.max_steps, turn_timeout_seconds=settings.execution.turn_timeout_seconds,
         )
 
     def _cards(self, ticket: Ticket) -> list[tuple[str, str]]:

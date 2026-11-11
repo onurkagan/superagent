@@ -200,3 +200,16 @@ def test_one_agent_works_on_several_repositories_at_once(tmp_path):
         ("repos/acme/web/issues/5/comments", "Fixed in acme/web."),
     ]
     assert (settings.work_root / "fix-api").is_dir() and (settings.work_root / "fix-web").is_dir()
+
+
+def test_claude_code_backend_needs_no_api_client(tmp_path):
+    from superagent.agents.claude_code import ClaudeCodeCLI, ClaudeCodeModelClient, claude_code_turn
+
+    settings = parse_settings({"state_dir": str(tmp_path / "state"), "model": {"backend": "claude-code"},
+                               "sources": {"inbox": {"allowed": ["me"]}}}, tmp_path)
+    runtime = Runtime(settings, store=Store())
+    try:
+        assert isinstance(runtime.client, ClaudeCodeModelClient)
+        assert runtime.executor.run is claude_code_turn and isinstance(runtime.executor.client, ClaudeCodeCLI)
+    finally:
+        runtime.shutdown()

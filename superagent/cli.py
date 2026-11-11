@@ -64,11 +64,18 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     healthy = _check(True, f"configuration {args.config}")
     problems = PromptLibrary(settings.prompts_dir).validate()
     healthy &= _check(not problems, "prompt overrides", "; ".join(problems))
-    has_key = bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"))
-    if not has_key and shutil.which("ant"):
-        has_key = subprocess.run(["ant", "auth", "status"], capture_output=True).returncode == 0
-    healthy &= _check(has_key, "model credentials",
-                      "set ANTHROPIC_API_KEY, or log in with `ant auth login`")
+    if settings.model.backend == "claude-code":
+        claude = shutil.which(settings.model.claude_command)
+        version = subprocess.run([claude, "--version"], capture_output=True, text=True) if claude else None
+        healthy &= _check(bool(version and version.returncode == 0),
+                          f"Claude Code CLI ({settings.model.claude_command})",
+                          "install Claude Code and log in with `claude`, or set [model] claude_command")
+    else:
+        has_key = bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"))
+        if not has_key and shutil.which("ant"):
+            has_key = subprocess.run(["ant", "auth", "status"], capture_output=True).returncode == 0
+        healthy &= _check(has_key, "model credentials",
+                          'set ANTHROPIC_API_KEY, log in with `ant auth login`, or use backend = "claude-code"')
     if settings.github_sources:
         gh = shutil.which("gh")
         healthy &= _check(bool(gh), "GitHub CLI installed", "install it from https://cli.github.com")
