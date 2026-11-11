@@ -31,7 +31,7 @@ PLACEHOLDERS: dict[str, tuple[str, ...]] = {
     "environment": ("{variables}",),
     "policy": ("{version}", "{mode}", "{rules}"),
     "policy-none": ("{version}", "{mode}"),
-    "github": ("{disclosure}", "{repository}"),
+    "github": ("{disclosure}",),
 }
 
 
