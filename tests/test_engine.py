@@ -364,3 +364,20 @@ def test_pause_stops_evals_launches_and_deliveries(engine):
 def test_decisions_are_stored(engine):
     decision, _ = accept_one(engine)
     assert engine.store.get(Decision, decision.id).ticket_id == decision.ticket_id
+
+
+def test_listened_threads_include_live_and_recently_ended_tickets(engine, clock):
+    _, ticket = accept_one(engine)
+    engine.follow(ticket.id, "#5")
+    assert engine.listened_threads() == {"github:issue:1", "github:issue:5"}
+    engine.report(ticket.id, ticket.assignment_id, Report("ready", "done"))
+    clock.advance(13 * 86400)
+    assert "github:issue:1" in engine.listened_threads()
+    clock.advance(2 * 86400)
+    assert engine.listened_threads() == set()
+
+
+def test_stopped_tickets_are_not_listened_to(engine):
+    _, ticket = accept_one(engine)
+    engine.stop(ticket.id)
+    assert engine.listened_threads() == set()

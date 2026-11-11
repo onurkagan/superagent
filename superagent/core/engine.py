@@ -787,6 +787,22 @@ class Engine:
             self._journal("thread.unsubscribed", thread=thread_key, ticket=ticket_id, by=by)
         return ""
 
+    def listened_threads(self, days_after_end: int = 14) -> set[str]:
+        """Threads Sources must keep reading: those followed by a live Ticket, or by one that ended recently and a
+        person's message could still resume."""
+        cutoff = _iso(self.clock() - timedelta(days=days_after_end))
+        tickets: dict[str, Ticket | None] = {}
+        keys = set()
+        for thread in self.store.list(Thread):
+            for sub in thread.subscriptions:
+                if sub.ticket_id not in tickets:
+                    tickets[sub.ticket_id] = self.store.get(Ticket, sub.ticket_id)
+                ticket = tickets[sub.ticket_id]
+                if ticket and not ticket.stopped and (ticket.live or ticket.updated_at >= cutoff):
+                    keys.add(thread.key)
+                    break
+        return keys
+
     # -- recovery ----------------------------------------------------------------------------------------------
 
     def recover(self) -> None:
