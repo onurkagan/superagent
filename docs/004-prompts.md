@@ -40,7 +40,8 @@ as `<input>` cards that carry the original text, not a summary.
 The assessor's system prompt is `shared`, `assessor`, `team/scope`, `team/communication` and `policy`, which comes last
 so that a Policy change leaves the cached beginning of the prompt untouched.
 
-Prompt files are read on every model request: an edit takes effect at the next step without a restart.
+Prompt files are read whenever an assessment runs and whenever a worker turn starts, so an edit takes effect without a
+restart: at the next assessment, and at each Ticket's next turn.
 
 ## Precedence
 
