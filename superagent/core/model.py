@@ -147,6 +147,7 @@ class Report:
     status: ReportStatus
     summary: str
     question: str = ""
+    question_trigger: str = ""
     pull_request: str = ""
     at: str = ""
 
