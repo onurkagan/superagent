@@ -42,3 +42,24 @@ def test_resolve_and_listen(tmp_path):
     assert source.resolve_thread("inbox:docs") == "inbox:docs"
     assert source.resolve_thread("#4") is None
     assert source.listens("inbox:x") and not source.listens("github:o/r#1")
+
+
+def test_a_request_can_name_the_repository_it_is_about(tmp_path):
+    from superagent.sources.base import SourceRegistry
+    from superagent.sources.github import GitHubConfig, GitHubSource
+
+    inbox = tmp_path / "inbox.jsonl"
+    source = InboxSource(Store(), inbox, tmp_path / "replies.jsonl")
+    append_message(inbox, "me", "Add a CONTRIBUTING.md", thread="docs", repository="acme/web")
+    [trigger] = source.poll(set())
+    assert trigger.meta == {"repository": "acme/web"} and trigger.title == "docs (acme/web)"
+
+    class NoGh:
+        def api(self, *args, **kwargs):
+            raise RuntimeError("offline")
+
+    github = GitHubSource(GitHubConfig(repositories=("acme/api", "acme/web"), account="bot"), Store(), gh=NoGh())
+    github.commit_email = lambda: ""
+    variables = {v.key: v.value for v in SourceRegistry([github, source]).variables(trigger)}
+    assert variables["SUPERAGENT_GITHUB_REPOSITORY"] == "acme/web"
+    assert variables["SUPERAGENT_GITHUB_REPOSITORIES"] == "acme/api,acme/web"

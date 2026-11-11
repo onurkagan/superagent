@@ -1,8 +1,10 @@
 """A local Source: messages appended to a JSON Lines file, replies written to another.
 
-It lets you run superagent end to end without GitHub, for demos, prompt tuning and tests. Each line of the inbox is a
-JSON object such as ``{"actor": "alice", "text": "Please add a README", "thread": "main"}``; ``superagent say``
-appends one. Inbox messages address the agent unless ``"addressed": false`` is given.
+It lets you give the agent work from the command line, and run superagent end to end without GitHub for demos, prompt
+tuning and tests. Each line of the inbox is a JSON object such as
+``{"actor": "alice", "text": "Please add a README", "thread": "main"}``; ``superagent say`` appends one. Inbox
+messages address the agent unless ``"addressed": false`` is given. ``"repository": "owner/name"`` names the GitHub
+repository a request is about; the ticket's worker then works on it.
 """
 
 from __future__ import annotations
@@ -17,10 +19,12 @@ from superagent.store import Store
 
 
 def append_message(path: Path, actor: str, text: str, thread: str = "main", bot: bool = False,
-                   addressed: bool = True) -> None:
+                   addressed: bool = True, repository: str = "") -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     line = {"actor": actor, "text": text, "thread": thread, "bot": bot, "addressed": addressed,
             "at": datetime.now(UTC).isoformat(timespec="seconds")}
+    if repository:
+        line["repository"] = repository
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(line, ensure_ascii=False) + "\n")
 
@@ -57,12 +61,15 @@ class InboxSource:
                 try:
                     data = json.loads(raw)
                     thread = str(data.get("thread") or "main")
+                    repository = str(data.get("repository") or "")
                     triggers.append(Trigger(
                         id=f"inbox:{start}", source=self.name, kind="message", actor=str(data["actor"]),
                         text=str(data["text"]), threads=(f"inbox:{thread}",),
                         channels=(ChannelRef(self.name, thread),), actor_is_bot=bool(data.get("bot")),
                         addressed="direct" if data.get("addressed", True) else "", scope="messages",
-                        observed=not data.get("addressed", True), title=thread, at=str(data.get("at") or ""),
+                        observed=not data.get("addressed", True), at=str(data.get("at") or ""),
+                        title=f"{thread} ({repository})" if repository else thread,
+                        meta={"repository": repository} if repository else {},
                     ))
                 except (ValueError, KeyError, TypeError):
                     malformed += 1
@@ -91,8 +98,13 @@ class InboxSource:
     def variables(self, origin: Trigger | None) -> list[Variable]:
         if origin is None:
             return []
-        return [Variable("SUPERAGENT_INBOX_THREAD", origin.threads[0].split(":", 1)[1],
-                         "The inbox conversation this ticket started from")]
+        result = [Variable("SUPERAGENT_INBOX_THREAD", origin.threads[0].split(":", 1)[1],
+                           "The inbox conversation this ticket started from")]
+        repository = str((origin.meta or {}).get("repository") or "")
+        if repository:
+            result.append(Variable("SUPERAGENT_GITHUB_REPOSITORY", repository,
+                                   "The repository this ticket works on (owner/name)"))
+        return result
 
     def instructions(self) -> str:
         return ""
