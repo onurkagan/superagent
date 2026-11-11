@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "superagent"
+version = "0.1.0"
+description = "A proactive, attention-frugal coding agent for one GitHub repository, powered by Claude."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+authors = [{ name = "Onur Kağan ALDEMİR" }]
+keywords = ["agent", "claude", "github", "automation", "llm"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Topic :: Software Development",
+]
+dependencies = ["anthropic>=1.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+superagent = "superagent.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/onurkagan/superagent"
+
+[tool.setuptools.packages.find]
+include = ["superagent*"]
+
+[tool.setuptools.package-data]
+superagent = ["prompts/*.md", "prompts/team/*.md", "panel/*.html"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
