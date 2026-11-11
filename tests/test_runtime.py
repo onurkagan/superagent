@@ -152,3 +152,51 @@ def test_pause_holds_evaluation_until_resumed(setup):
     runtime.store.enqueue_command("resume")
     run_until(runtime, lambda: len(assessor.requests) == 1)
     assert runtime.status()["paused"] is False
+
+
+def test_one_agent_works_on_several_repositories_at_once(tmp_path):
+    import re
+
+    from superagent.sources.github import GitHubConfig, GitHubSource
+    from tests.test_github_source import CURSOR, FakeGh, comment
+
+    store = Store()
+    repositories = ("acme/api", "acme/web")
+    for repository in repositories:
+        store.kv_set(f"source:github:cursor:{repository}", CURSOR)
+    gh = FakeGh({
+        "repos/acme/api/issues/comments": [comment(1, 3, repo="acme/api", body="@agent-bot fix the login API")],
+        "repos/acme/web/issues/comments": [comment(2, 5, repo="acme/web", body="@agent-bot fix the footer")],
+        "users/agent-bot": {"id": 7},
+    })
+    source = GitHubSource(GitHubConfig(repositories=repositories, account="agent-bot", poll_seconds=0.01), store,
+                          gh=gh)
+    settings = parse_settings({"state_dir": str(tmp_path / "state"),
+                               "sources": {"github": {"repositories": list(repositories), "allowed": ["alice"]}}},
+                              tmp_path)
+
+    def assess(request):
+        part = "api" if "github:acme/api#3" in request["messages"][0]["content"] else "web"
+        return decision(name=f"fix-{part}", title=f"Fix {part}", acknowledgement="")
+
+    def work(request):
+        last = request["messages"][-1]["content"]
+        if isinstance(last, list) and any(block.get("type") == "tool_result" for block in last):
+            return report("ready", "done")
+        repository = re.search(r"`SUPERAGENT_GITHUB_REPOSITORY` = `([^`]+)`", request["system"]).group(1)
+        return tool_call("reply", text=f"Fixed in {repository}.", purpose="result", in_reply_to="")
+
+    client = RoutingClient(ScriptedModelClient([assess, assess]), ScriptedModelClient([work] * 4))
+    runtime = Runtime(settings, store=store, client=client, sources=[source])
+    runtime.start()
+    try:
+        run_until(runtime, lambda: len(tickets(runtime)) == 2 and all(t.state == "ended" for t in tickets(runtime)))
+        run_until(runtime, lambda: len(gh.posts) == 2)
+    finally:
+        runtime.shutdown()
+    assert sorted(t.origin_thread for t in tickets(runtime)) == ["github:acme/api#3", "github:acme/web#5"]
+    assert sorted((path, body["body"].splitlines()[-1]) for path, body in gh.posts) == [
+        ("repos/acme/api/issues/3/comments", "Fixed in acme/api."),
+        ("repos/acme/web/issues/5/comments", "Fixed in acme/web."),
+    ]
+    assert (settings.work_root / "fix-api").is_dir() and (settings.work_root / "fix-web").is_dir()
