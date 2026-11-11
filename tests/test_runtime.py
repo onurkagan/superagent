@@ -213,3 +213,19 @@ def test_claude_code_backend_needs_no_api_client(tmp_path):
         assert runtime.executor.run is claude_code_turn and isinstance(runtime.executor.client, ClaudeCodeCLI)
     finally:
         runtime.shutdown()
+
+
+def test_commands_report_their_outcome_to_a_waiting_caller(setup):
+    runtime, settings, assessor, worker = setup
+    store = runtime.store
+    store.enqueue_command("retry", ticket="tk_missing", _reply="r1")
+    store.enqueue_command("pause", _reply="r2")
+    store.enqueue_command("note", ticket="tk_missing", text="hello", _reply="r3")
+    store.enqueue_command("decide", eval="ev_missing", outcome={"decision": "ignore", "reason": "x"}, _reply="r4")
+    store.enqueue_command("bogus", _reply="r5")
+    runtime.tick()
+    assert store.kv_get("command-reply:r1").startswith("error: ")
+    assert store.kv_get("command-reply:r2") == "processing paused"
+    assert store.kv_get("command-reply:r3") == "error: the ticket is not open"
+    assert "no such evaluation" in store.kv_get("command-reply:r4")
+    assert store.kv_get("command-reply:r5") == "error: unknown command 'bogus'"

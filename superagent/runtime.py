@@ -14,12 +14,13 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
-from superagent.agents.assessor import Assessor
+from superagent.agents.assessor import Assessor, to_outcome
 from superagent.agents.claude_code import ClaudeCodeCLI, ClaudeCodeModelClient, claude_code_turn
 from superagent.agents.executor import Executor
 from superagent.agents.prompts import PromptLibrary
 from superagent.agents.worker import WorkerSpec, run_turn
 from superagent.cards import assignment_card, input_card
+from superagent.commands import ERROR_PREFIX, respond
 from superagent.config import GitHubSettings, InboxSettings, Settings
 from superagent.core.engine import Candidate, Engine, Outcome
 from superagent.core.model import Assignment, Ticket, Trigger
@@ -130,18 +131,47 @@ class Runtime:
 
     def _apply_commands(self) -> None:
         for kind, args in self.store.take_commands():
-            if kind == "stop":
-                self.engine.stop(args["ticket"], args.get("reason") or "stopped from the panel")
-            elif kind == "retry":
-                self.engine.retry(args["ticket"])
-            elif kind == "pause":
-                self.engine.set_paused(True)
-            elif kind == "resume":
-                self.engine.set_paused(False)
-            elif kind == "reevaluate":
-                self.engine.reevaluate(args["trigger"])
-            else:
-                log.warning("unknown command %s", kind)
+            try:
+                outcome = self._apply_command(kind, args)
+            except Exception as exc:  # noqa: BLE001 - a bad command must not stop the loop
+                log.exception("command %s failed", kind)
+                outcome = f"{ERROR_PREFIX}{exc}"
+            respond(self.store, args, outcome)
+
+    def _apply_command(self, kind: str, args: dict[str, Any]) -> str:
+        """Apply one command and describe its outcome; refusals start with ``error:``."""
+        engine = self.engine
+        if kind == "stop":
+            stopped = engine.stop(args["ticket"], args.get("reason") or "stopped from the panel", by=args.get("by") or "person")
+            return "stopped" if stopped else f"{ERROR_PREFIX}the ticket is unknown or already stopped"
+        if kind == "retry":
+            if engine.retry(args["ticket"]):
+                return "a new assignment starts"
+            return f"{ERROR_PREFIX}only an open ticket that waits after a blocked or failed report, or a failed delivery, " \
+                   "can be retried"
+        if kind in ("pause", "resume"):
+            engine.set_paused(kind == "pause")
+            return "processing paused" if kind == "pause" else "processing resumed"
+        if kind == "reevaluate":
+            if engine.reevaluate(args["trigger"]):
+                return "queued for evaluation"
+            return f"{ERROR_PREFIX}unknown message, or the gate does not admit it"
+        if kind == "note":
+            error = engine.note(args["ticket"], str(args.get("text") or ""), str(args.get("kind") or "orchestrator"))
+            return f"{ERROR_PREFIX}{error}" if error else "noted"
+        if kind == "notify":
+            error = engine.reply(args["ticket"], str(args.get("text") or ""), "answer")
+            return f"{ERROR_PREFIX}{error}" if error else "queued for delivery"
+        if kind == "decide":
+            decision = engine.decide(args["eval"], to_outcome(args.get("outcome") or {}))
+            if decision is None:
+                return f"{ERROR_PREFIX}no such evaluation: it was already decided, expired, or restarted after a " \
+                       "policy change"
+            ticket = self.store.get(Ticket, decision.ticket_id) if decision.ticket_id else None
+            named = f" ticket {ticket.name} ({ticket.id})" if ticket else ""
+            return f"{decision.kind}{named}: {decision.reason}"
+        log.warning("unknown command %s", kind)
+        return f"{ERROR_PREFIX}unknown command {kind!r}"
 
     def _apply_events(self) -> None:
         while True:
