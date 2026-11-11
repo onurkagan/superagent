@@ -69,3 +69,33 @@ def test_module_runs_as_a_subprocess(tmp_path):
                              env={"SUPERAGENT_EVENTS_FILE": str(path), "PYTHONPATH": str(Path.cwd())})
     assert json.loads(process.stdout)["id"] == 7
     assert events(path) == [{"kind": "hand_back", "trigger_id": "m", "reason": "r"}]
+
+
+def test_orchestrator_role_lists_and_runs_orchestrator_tools(tmp_path):
+    from superagent.core.model import Mandate, Ticket
+    from superagent.store import Store
+
+    database = tmp_path / "superagent.db"
+    store = Store(database)
+    store.put(Ticket(id="tk_1", name="add-cli", title="Add a CLI", decision_id="dc_1", origin_thread="inbox:cli",
+                     origin_trigger="inbox:0", mandate=Mandate("p-1", "explicit", "allowlist", "Add a CLI", "me",
+                                                               "inbox")))
+    requests = [
+        {"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+        {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+         "params": {"name": "list_tickets", "arguments": {"which": "open"}}},
+    ]
+    process = subprocess.run([sys.executable, "-m", "superagent.bridge"],
+                             input="".join(json.dumps(r) + "\n" for r in requests), capture_output=True, text=True,
+                             timeout=30, env={"SUPERAGENT_ROLE": "orchestrator", "SUPERAGENT_DB": str(database),
+                                              "PYTHONPATH": str(Path.cwd())})
+    listed, called = [json.loads(line) for line in process.stdout.splitlines()]
+    names = [t["name"] for t in listed["result"]["tools"]]
+    assert "route" in names and "note" in names and "reply" not in names
+    assert "tk_1 [add-cli]" in called["result"]["content"][0]["text"]
+
+
+def test_orchestrator_role_needs_a_database():
+    process = subprocess.run([sys.executable, "-m", "superagent.bridge"], input="", capture_output=True, text=True,
+                             timeout=30, env={"SUPERAGENT_ROLE": "orchestrator", "PYTHONPATH": str(Path.cwd())})
+    assert process.returncode == 2 and "SUPERAGENT_DB" in process.stderr

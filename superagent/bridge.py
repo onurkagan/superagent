@@ -6,6 +6,10 @@ come from this server, which Claude Code starts over stdio. The server validates
 line to the file named by ``SUPERAGENT_EVENTS_FILE``; the Executor reads that file while the turn runs and hands the
 events to the Engine, which checks them again.
 
+With ``SUPERAGENT_ROLE=orchestrator`` the same server gives the orchestrator its tools instead (see
+:mod:`superagent.agents.orchestrator_tools`). They read the database named by ``SUPERAGENT_DB`` and act through the
+command queue, so each call returns the outcome the runtime applied.
+
 Run with ``python -m superagent.bridge``. It speaks the subset of the Model Context Protocol a tool server needs:
 ``initialize``, ``tools/list``, ``tools/call`` and ``ping``, as newline-delimited JSON-RPC 2.0.
 """
@@ -15,7 +19,7 @@ from __future__ import annotations
 import json
 import os
 import sys
-from typing import IO, Any
+from typing import IO, Any, Protocol
 
 from superagent import __version__
 from superagent.agents.tools import TOOL_DEFINITIONS, execute
@@ -26,9 +30,9 @@ BRIDGED = ("reply", "report", "hand_back", "follow_thread")
 DEFAULT_PROTOCOL_VERSION = "2025-06-18"
 
 
-def tool_names() -> list[str]:
+def tool_names(names: tuple[str, ...] | list[str] = BRIDGED) -> list[str]:
     """The names Claude Code gives the bridged tools."""
-    return [f"mcp__{SERVER_NAME}__{name}" for name in BRIDGED]
+    return [f"mcp__{SERVER_NAME}__{name}" for name in names]
 
 
 def _tools() -> list[dict[str, Any]]:
@@ -101,8 +105,44 @@ class _NoContext:
 _NO_CONTEXT: Any = _NoContext()
 
 
-def handle(message: dict[str, Any], log: EventLog) -> dict[str, Any] | None:
+class Toolbox(Protocol):
+    def tools(self) -> list[dict[str, Any]]: ...
+
+    def call(self, name: str, arguments: dict[str, Any]) -> tuple[str, bool]: ...
+
+
+class WorkerToolbox:
+    """A worker's four tools, recorded to the event file."""
+
+    def __init__(self, log: EventLog) -> None:
+        self.log = log
+
+    def tools(self) -> list[dict[str, Any]]:
+        return _tools()
+
+    def call(self, name: str, arguments: dict[str, Any]) -> tuple[str, bool]:
+        return call_tool(name, arguments, self.log)
+
+
+class OrchestratorToolbox:
+    """The orchestrator's tools, run against the agent's database."""
+
+    def __init__(self, tools: Any) -> None:
+        self.orchestrator_tools = tools
+
+    def tools(self) -> list[dict[str, Any]]:
+        from superagent.agents.orchestrator_tools import ORCHESTRATOR_TOOLS
+
+        return [{"name": t["name"], "description": t["description"], "inputSchema": t["input_schema"]}
+                for t in ORCHESTRATOR_TOOLS]
+
+    def call(self, name: str, arguments: dict[str, Any]) -> tuple[str, bool]:
+        return self.orchestrator_tools.execute(name, arguments)
+
+
+def handle(message: dict[str, Any], box: Toolbox | EventLog) -> dict[str, Any] | None:
     """Answer one JSON-RPC message; notifications get no answer."""
+    toolbox: Toolbox = WorkerToolbox(box) if isinstance(box, EventLog) else box
     method = message.get("method")
     request_id = message.get("id")
     if request_id is None:
@@ -114,17 +154,17 @@ def handle(message: dict[str, Any], log: EventLog) -> dict[str, Any] | None:
     elif method == "ping":
         result = {}
     elif method == "tools/list":
-        result = {"tools": _tools()}
+        result = {"tools": toolbox.tools()}
     elif method == "tools/call":
         params = message.get("params") or {}
-        text, is_error = call_tool(str(params.get("name", "")), params.get("arguments") or {}, log)
+        text, is_error = toolbox.call(str(params.get("name", "")), params.get("arguments") or {})
         result = {"content": [{"type": "text", "text": text}], "isError": is_error}
     else:
         return {"jsonrpc": "2.0", "id": request_id, "error": {"code": -32601, "message": f"unknown method {method}"}}
     return {"jsonrpc": "2.0", "id": request_id, "result": result}
 
 
-def serve(stdin: IO[str], stdout: IO[str], log: EventLog) -> None:
+def serve(stdin: IO[str], stdout: IO[str], log: Toolbox | EventLog) -> None:
     for line in stdin:
         line = line.strip()
         if not line:
@@ -142,6 +182,16 @@ def serve(stdin: IO[str], stdout: IO[str], log: EventLog) -> None:
 
 
 def main() -> int:
+    if os.environ.get("SUPERAGENT_ROLE") == "orchestrator":
+        database = os.environ.get("SUPERAGENT_DB")
+        if not database:
+            print("SUPERAGENT_DB is not set", file=sys.stderr)
+            return 2
+        from superagent.agents.orchestrator_tools import OrchestratorTools
+        from superagent.store import Store
+
+        serve(sys.stdin, sys.stdout, OrchestratorToolbox(OrchestratorTools(Store(database))))
+        return 0
     path = os.environ.get("SUPERAGENT_EVENTS_FILE")
     if not path:
         print("SUPERAGENT_EVENTS_FILE is not set", file=sys.stderr)
