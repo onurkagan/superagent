@@ -54,35 +54,65 @@ flowchart LR
 
 ## Quick start
 
+### No API key needed
+
+superagent runs on the `claude` command line you already use: its workers, routing and the orchestrator all go
+through your Claude Code login. You need:
+
+- Python 3.11 or later;
+- [Claude Code](https://code.claude.com), logged in (run `claude` once and log in);
+- the [GitHub CLI](https://cli.github.com), logged in: `gh auth login`.
+
 ```sh
 git clone https://github.com/onurkagan/superagent.git && cd superagent
 python -m venv .venv && . .venv/bin/activate
-pip install -e ".[dev]"
+pip install -e .
 
-python examples/offline_demo.py --serve   # the whole flow with a scripted model: no API key, no GitHub
+superagent init --repo YOU/PROJECT     # repeat --repo for more repositories
+superagent doctor                      # checks claude, gh and access to the repositories
+superagent run                         # leave it running; the panel is at http://127.0.0.1:8765/
 ```
 
-To run it for real:
+In a second terminal, give it work and talk to it:
 
 ```sh
-export ANTHROPIC_API_KEY=...          # or: ant auth login, or backend = "claude-code" (no API key, see below)
-gh auth login                         # as the account the agent acts as
-superagent init                       # writes superagent.toml
-$EDITOR superagent.toml               # repositories, allowed people
-superagent doctor
-superagent run                        # panel at http://127.0.0.1:8765/
+superagent say "Add a CONTRIBUTING.md" --repo YOU/PROJECT
+superagent replies                     # what the agent answered
+superagent chat "What are you working on?"
 ```
 
-No API key? Set `backend = "claude-code"` under `[model]` and superagent runs its workers and assessments through the
-`claude` command line you are already logged in to; see *Backends* in [docs/004-prompts.md](docs/004-prompts.md).
+Each `say` becomes its own ticket with its own worker session, and several run at once. The worker clones the
+repository, makes the change on a branch and opens a pull request; the answer appears in `superagent replies` and in
+the panel. To add to a request later, pass the `--thread` that `say` printed.
 
-Then mention the agent's account in an Issue of a watched repository, for example
-`@my-agent please add a CONTRIBUTING.md`.
+`superagent init` writes `backend = "claude-code"` whenever `ANTHROPIC_API_KEY` is not set. Check that your Claude
+plan allows unattended use: every worker turn and every orchestrator turn counts against it.
+
+### Just look around
+
+```sh
+python examples/offline_demo.py --serve   # no Claude, no GitHub: a scripted model runs the whole flow
+```
+
+### For a team: ask on GitHub
+
+Give the agent a GitHub account of its own (a machine user, logged in with `gh auth login`) and teammates can ask in
+any Issue or pull request of a watched repository, for example `@my-agent please add a CONTRIBUTING.md`; their review
+comments on its pull requests go straight to the worker that opened them. Run `superagent init` without `--repo` for
+the full template and fill in `repositories` and `allowed`. While the agent works as your own account, it ignores
+your own comments on GitHub, so use `superagent say` for your requests.
+
+### With an API key
+
+Set `ANTHROPIC_API_KEY` (or run `ant auth login`) before `superagent init` and it writes `backend = "anthropic"`:
+workers then run superagent's own tool loop over the Messages API, and a message reaches a busy worker at its next
+step instead of its next turn. *Backends* in [docs/004-prompts.md](docs/004-prompts.md) compares the two.
 
 ## Configuration
 
 ```toml
 [model]
+backend = "claude-code"     # or "anthropic" with an API key
 worker = "claude-opus-5-5"
 worker_effort = "high"
 
@@ -117,14 +147,15 @@ such as when to stop with a draft or what a pull request must contain, lives in 
 
 | Command | What it does |
 | --- | --- |
-| `superagent init` / `doctor` | Write a configuration template / check it, credentials and repository access |
+| `superagent init [--repo owner/name]` | Write a configuration: ready to run with `--repo`, a full template without |
+| `superagent doctor` | Check the configuration, `claude` or the API key, `gh` and repository access |
 | `superagent run` | Run the agent and its panel |
 | `superagent status` | What needs you, problems, the last 24 hours |
 | `superagent chat ["..."]` | Talk to the orchestrator: ask what runs, which tickets overlap, or tell it to act |
 | `superagent tickets [--all]`, `show <id>` | List tickets / show one in detail |
 | `superagent stop <id>`, `retry <id>` | Stop a ticket / retry a blocked or failed one |
 | `superagent pause`, `resume`, `reevaluate <trigger>` | Control processing |
-| `superagent say "..."`, `replies` | Talk to the agent through the local inbox source |
+| `superagent say "..." --repo owner/name`, `replies` | Give the agent a request / read its answers |
 | `superagent prompts list\|show\|eject <part>` | Inspect and customise prompts |
 
 ## Documentation
