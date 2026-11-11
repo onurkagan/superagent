@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "superagent"
 version = "0.1.0"
-description = "A proactive, attention-frugal coding agent for one GitHub repository, powered by Claude."
+description = "A proactive, attention-frugal coding agent for many GitHub repositories, powered by Claude."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
