@@ -30,11 +30,14 @@ def new_id(prefix: str) -> str:
 
 
 _NON_SLUG = re.compile(r"[^a-z0-9]+")
+# Letters that have no ASCII decomposition under NFKD.
+_TRANSLITERATE = str.maketrans({"ı": "i", "İ": "I", "ß": "ss", "ø": "o", "Ø": "O", "æ": "ae", "Æ": "AE",
+                                "đ": "d", "Đ": "D", "ł": "l", "Ł": "L", "þ": "th", "œ": "oe"})
 
 
 def slug(text: str, max_length: int = 40, fallback: str = "ticket") -> str:
     """Turn free text into a short, lower-case, dash-separated name usable as a branch or directory name."""
-    ascii_text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
+    ascii_text = unicodedata.normalize("NFKD", text.translate(_TRANSLITERATE)).encode("ascii", "ignore").decode("ascii")
     words = [w for w in _NON_SLUG.split(ascii_text.lower()) if w]
     name = ""
     for word in words:
