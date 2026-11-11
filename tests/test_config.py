@@ -96,3 +96,13 @@ def test_load_settings_reports_missing_and_invalid_files(tmp_path):
     good = tmp_path / "superagent.toml"
     good.write_text('[sources.inbox]\nallowed = ["me"]\n')
     assert load_settings(good).base_dir == tmp_path.resolve()
+
+
+def test_backend_and_turn_timeout_settings():
+    settings = parse({**MINIMAL, "model": {"backend": "claude-code", "claude_command": "/opt/claude"},
+                      "execution": {"turn_timeout_seconds": 900}})
+    assert settings.model.backend == "claude-code" and settings.model.claude_command == "/opt/claude"
+    assert settings.execution.turn_timeout_seconds == 900
+    assert parse(MINIMAL).model.backend == "anthropic"
+    with pytest.raises(ConfigError, match="must be one of"):
+        parse({**MINIMAL, "model": {"backend": "carrier-pigeon"}})

@@ -18,6 +18,7 @@ from superagent.llm.client import DEFAULT_MODEL
 from superagent.sources.github import DEFAULT_DISCLOSURE, REPOSITORY_PATTERN, SCOPES
 
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
+BACKENDS = ("anthropic", "claude-code")
 DEFAULT_BLOCKED_COMMANDS = ("sudo", "shutdown", "reboot", "mkfs", "dd")
 
 
@@ -27,6 +28,8 @@ class ConfigError(ValueError):
 
 @dataclass
 class ModelSettings:
+    backend: str = "anthropic"
+    claude_command: str = "claude"
     worker: str = DEFAULT_MODEL
     assessor: str = DEFAULT_MODEL
     worker_effort: str = "high"
@@ -42,6 +45,7 @@ class ExecutionSettings:
     prepare: str = ""
     blocked_commands: tuple[str, ...] = DEFAULT_BLOCKED_COMMANDS
     max_steps: int = 200
+    turn_timeout_seconds: int = 3600
 
 
 @dataclass
@@ -304,9 +308,10 @@ def _rules(items: Any) -> list[Rule]:
 def parse_settings(data: dict[str, Any], base_dir: Path) -> Settings:
     _take(data, "top level", {"state_dir", "model", "execution", "policy", "sources", "panel"})
     model = _take(data.get("model", {}), "model",
-                  {"worker", "assessor", "worker_effort", "assessor_effort", "fallbacks", "base_url"})
+                  {"backend", "claude_command", "worker", "assessor", "worker_effort", "assessor_effort",
+                   "fallbacks", "base_url"})
     execution = _take(data.get("execution", {}), "execution",
-                      {"root", "concurrency", "prepare", "blocked_commands", "max_steps"})
+                      {"root", "concurrency", "prepare", "blocked_commands", "max_steps", "turn_timeout_seconds"})
     policy = _take(data.get("policy", {}), "policy", {"mode", "eval_timeout_seconds", "rules"})
     sources = data.get("sources", {})
     panel = _take(data.get("panel", {}), "panel", {"enabled", "host", "port", "token"})
@@ -315,6 +320,8 @@ def parse_settings(data: dict[str, Any], base_dir: Path) -> Settings:
         base_dir=base_dir,
         state_dir=_str(data, "state_dir", ".superagent", "top level"),
         model=ModelSettings(
+            backend=_str(model, "backend", defaults.backend, "model", BACKENDS),
+            claude_command=_str(model, "claude_command", defaults.claude_command, "model"),
             worker=_str(model, "worker", defaults.worker, "model"),
             assessor=_str(model, "assessor", defaults.assessor, "model"),
             worker_effort=_str(model, "worker_effort", defaults.worker_effort, "model", EFFORTS),
@@ -328,6 +335,7 @@ def parse_settings(data: dict[str, Any], base_dir: Path) -> Settings:
             prepare=_str(execution, "prepare", "", "execution"),
             blocked_commands=_strings(execution, "blocked_commands", DEFAULT_BLOCKED_COMMANDS, "execution"),
             max_steps=_int(execution, "max_steps", 200, "execution", minimum=1),
+            turn_timeout_seconds=_int(execution, "turn_timeout_seconds", 3600, "execution", minimum=60),
         ),
         policy=PolicySettings(
             mode=_str(policy, "mode", "observe", "policy", ACCEPT_MODES),
@@ -362,12 +370,15 @@ CONFIG_TEMPLATE = '''# superagent configuration. See docs/006-deployment.md for 
 state_dir = ".superagent"
 
 [model]
+# "anthropic": the Anthropic API (needs ANTHROPIC_API_KEY or `ant auth login`).
+# "claude-code": the `claude` command line and its login; no API key needed.
+backend = "anthropic"
 worker = "claude-opus-5-5"
 assessor = "claude-opus-5-5"
 worker_effort = "high"      # low | medium | high | xhigh | max
 assessor_effort = "low"
-fallbacks = "default"       # server-side refusal fallback; "" turns it off
-base_url = ""               # empty: ANTHROPIC_BASE_URL or the Anthropic API
+fallbacks = "default"       # anthropic backend: server-side refusal fallback; "" turns it off
+base_url = ""               # anthropic backend: empty means ANTHROPIC_BASE_URL or the Anthropic API
 
 [execution]
 concurrency = 2
@@ -375,7 +386,8 @@ concurrency = 2
 # $SUPERAGENT_GITHUB_REPOSITORY the repository the ticket belongs to.
 prepare = 'gh repo clone "$SUPERAGENT_GITHUB_REPOSITORY" "$SUPERAGENT_NAME" -- --quiet && git -C "$SUPERAGENT_NAME" switch -c "$SUPERAGENT_NAME"'
 blocked_commands = ["sudo", "shutdown", "reboot", "mkfs", "dd"]
-max_steps = 200
+max_steps = 200             # anthropic backend: model steps per turn
+turn_timeout_seconds = 3600 # claude-code backend: longest turn
 
 [policy]
 mode = "observe"            # off | observe | auto: what happens to proactive (inferred) candidates
