@@ -43,6 +43,7 @@ superagent doctor      # checks the configuration, credentials, gh login and acc
 | `execution.blocked_commands` | `sudo shutdown reboot mkfs dd` | Programs workers may not run by name |
 | `execution.max_steps` | `200` | `anthropic` backend: model steps per turn before a Ticket reports `blocked` |
 | `execution.turn_timeout_seconds` | `3600` | `claude-code` backend: longest turn before a Ticket reports `blocked` |
+| `[orchestrator]` | off; `superagent init` turns it on | The session that oversees every ticket; see [009 Orchestrator](009-orchestrator.md) |
 | `policy.mode` | `observe` | `off`, `observe` or `auto` for proactive candidates |
 | `policy.eval_timeout_seconds` | `600` | How long an assessment may take |
 | `[[policy.rules]]` | none | Proactive rules: `id`, `name`, `instruction`, `enabled` |
@@ -84,9 +85,10 @@ default 60 seconds that is 180 calls per hour per repository, well inside GitHub
 
 ```sh
 superagent run              # the agent and its panel; Ctrl-C stops
-superagent status           # what needs you, problems and the last 24 hours
+superagent status           # what needs you, problems, worker sessions, the orchestrator
 superagent tickets --all
 superagent show <ticket-id>
+superagent chat "What is running, and does anything overlap?"
 ```
 
 Run it as a service under a dedicated user, for example with systemd:
@@ -137,3 +139,4 @@ Compare an override with the new default with `superagent prompts show <part>` a
 | Assessments are `unavailable` | Model credentials and the `model.*` settings; the problem row shows the error |
 | A Ticket failed at once | Its first Report: usually the prepare command; run it by hand in the work root |
 | Replies never arrive | *System problems* lists failing messages with the error from GitHub |
+| The orchestrator does not answer | `superagent status` shows its last error; check the backend's credentials. Its candidates go to the assessor meanwhile |
