@@ -67,15 +67,32 @@ Editing a prompt changes what the model reads. It never changes the gate, the Ma
 - **Examples show format only.** An example sentence is never a fact to claim.
 - **One ticket, one repository.** A Ticket works on the repository its request came from and does not change others.
 
+## Backends
+
+superagent reaches Claude in one of two ways, chosen with `model.backend`:
+
+| Backend | Needs | Worker turn | Assessment |
+| --- | --- | --- | --- |
+| `anthropic` (default) | An Anthropic API key, or `ant auth login` | superagent's own tool loop over the Messages API | One structured Messages API call |
+| `claude-code` | The `claude` command line, logged in | One `claude -p` process per turn in the ticket directory, continuing the ticket's Claude Code session | One tool-less `claude -p --json-schema` call |
+
+With `claude-code`, workers use Claude Code's own shell and file tools, and superagent's `reply`, `report`,
+`hand_back` and `follow_thread` come from an MCP server (`python -m superagent.bridge`) that Claude Code starts for
+each turn. Two behaviours differ from the API backend: a message that arrives while a turn runs is delivered at the
+next turn rather than the next step, and `execution.turn_timeout_seconds` replaces the step limit. The backend uses
+whatever account `claude` is logged in with; check that your plan allows unattended use before relying on it.
+
 ## Model settings
 
 | Setting | Default | Notes |
 | --- | --- | --- |
-| `model.worker`, `model.assessor` | `claude-opus-5-5` | Any model the Messages API offers |
+| `model.backend` | `anthropic` | `anthropic` or `claude-code` |
+| `model.claude_command` | `claude` | The Claude Code executable, for the `claude-code` backend |
+| `model.worker`, `model.assessor` | `claude-opus-5-5` | A model name or alias the backend accepts |
 | `model.worker_effort` | `high` | Coding responds strongly to effort; `xhigh` for hard repositories |
 | `model.assessor_effort` | `low` | Routing is a short judgement |
-| `model.fallbacks` | `default` | Server-side refusal fallback; set to `""` to turn it off |
-| `model.base_url` | empty | Another endpoint that speaks the Anthropic Messages API |
+| `model.fallbacks` | `default` | `anthropic` backend: server-side refusal fallback; `""` turns it off |
+| `model.base_url` | empty | `anthropic` backend: another endpoint that speaks the Anthropic Messages API |
 
-Credentials come from the Anthropic SDK's usual sources: `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, or a profile
-from `ant auth login`.
+With the `anthropic` backend, credentials come from the Anthropic SDK's usual sources: `ANTHROPIC_API_KEY`,
+`ANTHROPIC_AUTH_TOKEN`, or a profile from `ant auth login`.
