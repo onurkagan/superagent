@@ -41,4 +41,4 @@ def test_resolve_and_listen(tmp_path):
     source = InboxSource(Store(), tmp_path / "i", tmp_path / "r")
     assert source.resolve_thread("inbox:docs") == "inbox:docs"
     assert source.resolve_thread("#4") is None
-    assert source.listens("inbox:x") and not source.listens("github:issue:1")
+    assert source.listens("inbox:x") and not source.listens("github:o/r#1")

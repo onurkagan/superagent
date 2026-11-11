@@ -5,7 +5,7 @@ from superagent.core.policy import Admission, Policy, Rule, SourcePolicy
 
 
 def trig(actor="alice", addressed="mention", bot=False, observed=False, source="github"):
-    return Trigger(id="t", source=source, kind="comment", actor=actor, text="hi", threads=("github:issue:1",),
+    return Trigger(id="t", source=source, kind="comment", actor=actor, text="hi", threads=("github:o/r#1",),
                    actor_is_bot=bot, addressed=addressed, observed=observed)
 
 

@@ -30,12 +30,12 @@ def make_policy(mode="observe", rules=(), admission=Admission(), allowed=("alice
                   sources={"github": SourcePolicy(allowed=tuple(allowed), bots=tuple(bots), admission=admission)})
 
 
-def make_trigger(text="@agent please fix the typo", actor="alice", thread="github:issue:1", addressed="mention",
+def make_trigger(text="@agent please fix the typo", actor="alice", thread="github:o/r#1", addressed="mention",
                  bot=False, observed=False, kind="comment", tid=None, meta=None, title="") -> Trigger:
-    number = thread.rsplit(":", 1)[-1]
+    reference = thread.split(":", 1)[1]
     return Trigger(
         id=tid or f"github:comment:{next(_counter)}", source="github", kind=kind, actor=actor, text=text,
-        threads=(thread,), channels=(ChannelRef("github", f"issue:{number}"),), actor_is_bot=bot,
+        threads=(thread,), channels=(ChannelRef("github", f"issue:{reference}"),), actor_is_bot=bot,
         addressed=addressed, observed=observed, title=title, meta=meta or {},
     )
 
@@ -53,12 +53,12 @@ def store() -> Store:
 @pytest.fixture
 def engine(store, clock) -> Engine:
     def resolve(ref: str) -> str | None:
-        if ref.startswith("github:issue:"):
+        if ref.startswith("github:o/r#"):
             return ref
         if "/pull/" in ref or "/issues/" in ref:
-            return "github:issue:" + ref.rstrip("/").rsplit("/", 1)[-1]
+            return "github:o/r#" + ref.rstrip("/").rsplit("/", 1)[-1]
         if ref.startswith("#"):
-            return "github:issue:" + ref[1:]
+            return "github:o/r" + ref
         return None
 
     return Engine(store, make_policy(rules=[Rule("typos", "Fix typos", "Fix obvious typos in docs.")]),

@@ -13,7 +13,7 @@ def make_ticket(tid="tk_1", state="open"):
 def test_put_and_get_round_trip(tmp_path):
     store = Store(tmp_path / "state.db")
     trigger = Trigger(id="github:c:1", source="github", kind="comment", actor="alice", text="hi",
-                      threads=("github:issue:1",), channels=(ChannelRef("github", "issue:1"),))
+                      threads=("github:o/r#1",), channels=(ChannelRef("github", "issue:1"),))
     store.put(trigger)
     assert store.get(Trigger, "github:c:1") == trigger
     assert store.get(Trigger, "missing") is None
@@ -21,10 +21,10 @@ def test_put_and_get_round_trip(tmp_path):
 
 def test_thread_is_keyed_by_key_and_tagged_active_when_queued():
     store = Store()
-    store.put(Thread(key="github:issue:1", source="github", subscriptions=[Subscription("tk_1")]))
-    store.put(Thread(key="github:issue:2", source="github", queued=["t1"]))
-    assert [t.key for t in store.list(Thread, tag="active")] == ["github:issue:2"]
-    assert store.get(Thread, "github:issue:1").subscriptions == [Subscription("tk_1")]
+    store.put(Thread(key="github:o/r#1", source="github", subscriptions=[Subscription("tk_1")]))
+    store.put(Thread(key="github:o/r#2", source="github", queued=["t1"]))
+    assert [t.key for t in store.list(Thread, tag="active")] == ["github:o/r#2"]
+    assert store.get(Thread, "github:o/r#1").subscriptions == [Subscription("tk_1")]
 
 
 def test_tickets_are_listed_by_state():

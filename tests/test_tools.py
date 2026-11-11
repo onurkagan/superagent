@@ -18,7 +18,7 @@ class Host:
         return ""
 
     def follow(self, ref):
-        return "github:issue:5" if ref == "#5" else ""
+        return "github:o/r#5" if ref == "#5" else ""
 
 
 @pytest.fixture
@@ -101,7 +101,7 @@ def test_host_tools_pass_through_and_surface_errors(ctx):
         "queued for delivery"
     assert execute("reply", {"text": "x" * 60, "purpose": "result", "in_reply_to": ""}, ctx).is_error
     assert not execute("hand_back", {"message_id": "t1", "reason": "beyond scope"}, ctx).is_error
-    assert execute("follow_thread", {"ref": "#5"}, ctx).content == "following github:issue:5"
+    assert execute("follow_thread", {"ref": "#5"}, ctx).content == "following github:o/r#5"
     assert execute("follow_thread", {"ref": "nope"}, ctx).is_error
 
 

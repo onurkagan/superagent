@@ -5,7 +5,7 @@ from tests.conftest import make_policy, make_trigger
 
 
 def ticket(**kw):
-    t = Ticket(id="tk_1", name="fix-typo", title="Fix typo", decision_id="d", origin_thread="github:issue:1",
+    t = Ticket(id="tk_1", name="fix-typo", title="Fix typo", decision_id="d", origin_thread="github:o/r#1",
                origin_trigger="t", mandate=Mandate("p", "inferred", "admission", "Fix the typo", "alice", "github",
                                                    rules=("typos",)), assignment_ids=["as_1"])
     for k, v in kw.items():

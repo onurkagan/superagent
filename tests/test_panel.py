@@ -11,7 +11,7 @@ from superagent.panel.server import PanelServer
 from tests.conftest import make_trigger
 
 
-def accept(engine, text="@agent fix the typo", thread="github:issue:1"):
+def accept(engine, text="@agent fix the typo", thread="github:o/r#1"):
     engine.intake(make_trigger(text=text, thread=thread))
     [candidate] = engine.start_evals()
     return engine.decide(candidate.eval.id, Outcome("accept", "ok", title="Fix typo", acknowledgement="On it."))
@@ -19,7 +19,7 @@ def accept(engine, text="@agent fix the typo", thread="github:issue:1"):
 
 def test_needs_person_lists_only_tickets_waiting_for_a_person(engine):
     first = accept(engine)
-    second = accept(engine, "@agent update docs", thread="github:issue:2")
+    second = accept(engine, "@agent update docs", thread="github:o/r#2")
     assignment_id = engine.store.get(Ticket, first.ticket_id).assignment_id
     engine.report(first.ticket_id, assignment_id, Report("blocked", "need access", question="Can you grant access?"))
     data = PanelData(engine.store)

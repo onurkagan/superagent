@@ -157,10 +157,10 @@ def test_host_validates_replies_and_resolves_threads(tmp_path, events):
         return Report("waiting", "x")
 
     executor = Executor(None, events, root=tmp_path / "work", run=turn,
-                        resolve_thread=lambda ref: "github:issue:9" if ref == "#9" else None)
+                        resolve_thread=lambda ref: "github:o/r#9" if ref == "#9" else None)
     executor.start(spec_for(tmp_path), [])
     seen = drain(events, "report")
     assert "limit" in captured["long"] and "purpose" in captured["bad"] and captured["ok"] == ""
-    assert captured["follow"] == "github:issue:9"
+    assert captured["follow"] == "github:o/r#9"
     kinds = [e[0] for e in seen]
     assert kinds.count("reply") == 1 and "follow" in kinds and "hand_back" in kinds

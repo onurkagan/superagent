@@ -30,7 +30,7 @@ def test_explicit_request_becomes_ticket_with_mandate_subscription_and_acknowled
     assert ticket.mandate.strength == "explicit" and ticket.mandate.basis == "allowlist"
     assert ticket.mandate.requester == "alice"
     assert [i.trigger_id for i in ticket.inputs if i.owned] == [trigger.id]
-    thread = engine.store.get(Thread, "github:issue:1")
+    thread = engine.store.get(Thread, "github:o/r#1")
     assert thread.subscription(ticket.id) is not None and not thread.queued and not thread.eval_id
     assert engine.store.get(Assignment, ticket.assignment_id).state == "pending"
     assert messages(engine)[0]["kind"] == "acknowledgement" and ticket.acknowledged
@@ -186,7 +186,7 @@ def test_unread_follow_ups_are_released_to_eval_when_the_ticket_ends(engine):
     follow_up = make_trigger(text="also check the changelog", addressed="")
     engine.intake(follow_up)
     engine.report(ticket.id, ticket.assignment_id, Report("dropped", "nothing to do"))
-    assert follow_up.id in engine.store.get(Thread, "github:issue:1").queued
+    assert follow_up.id in engine.store.get(Thread, "github:o/r#1").queued
 
 
 # -- stop and attach decisions ---------------------------------------------------------------------------------
@@ -219,12 +219,12 @@ def test_inferred_stop_is_refused(engine):
 
 def test_attach_subscribes_an_existing_ticket_to_another_thread(engine):
     _, ticket = accept_one(engine)
-    other = make_trigger(text="@agent please include this in your PR for #1", thread="github:issue:2")
+    other = make_trigger(text="@agent please include this in your PR for #1", thread="github:o/r#2")
     engine.intake(other)
     [candidate] = engine.start_evals()
     decision = engine.decide(candidate.eval.id, Outcome("attach", "points at #1", ticket_id=ticket.id))
     assert decision.kind == "attach"
-    assert engine.store.get(Thread, "github:issue:2").subscription(ticket.id) is not None
+    assert engine.store.get(Thread, "github:o/r#2").subscription(ticket.id) is not None
     assert any(i.trigger_id == other.id and i.owned for i in engine.store.get(Ticket, ticket.id).inputs)
 
 
@@ -312,8 +312,8 @@ def test_ready_with_pull_request_waits_for_the_pull_request_to_close(engine):
     engine.report(ticket.id, ticket.assignment_id,
                   Report("ready", "PR open", pull_request="https://github.com/o/r/pull/7"))
     waiting = engine.store.get(Ticket, ticket.id)
-    assert waiting.live and waiting.opened_pull_requests == ["github:issue:7"]
-    engine.intake(make_trigger(text="", actor="", addressed="", kind="pr_closed", thread="github:issue:7",
+    assert waiting.live and waiting.opened_pull_requests == ["github:o/r#7"]
+    engine.intake(make_trigger(text="", actor="", addressed="", kind="pr_closed", thread="github:o/r#7",
                                meta={"merged": True}))
     done = engine.store.get(Ticket, ticket.id)
     assert done.state == "ended" and done.outcome == "merged"
@@ -329,28 +329,28 @@ def test_reply_is_queued_and_long_replies_are_refused(engine):
 
 def test_follow_adds_a_context_only_subscription(engine):
     _, ticket = accept_one(engine)
-    assert engine.follow(ticket.id, "#5") == "github:issue:5"
-    assert engine.store.get(Thread, "github:issue:5").subscription(ticket.id).context_only
-    assert engine.intake(make_trigger(text="unrelated chat", thread="github:issue:5", addressed="")) == "filtered"
+    assert engine.follow(ticket.id, "#5") == "github:o/r#5"
+    assert engine.store.get(Thread, "github:o/r#5").subscription(ticket.id).context_only
+    assert engine.intake(make_trigger(text="unrelated chat", thread="github:o/r#5", addressed="")) == "filtered"
 
 
 def test_worker_cannot_unsubscribe_from_its_origin_thread(engine):
     _, ticket = accept_one(engine)
-    assert "cannot" in engine.unsubscribe(ticket.id, "github:issue:1")
+    assert "cannot" in engine.unsubscribe(ticket.id, "github:o/r#1")
     engine.follow(ticket.id, "#5")
-    assert engine.unsubscribe(ticket.id, "github:issue:5") == ""
+    assert engine.unsubscribe(ticket.id, "github:o/r#5") == ""
 
 
 def test_recover_restarts_busy_assignments_and_requeues_evals(engine):
     _, ticket = accept_one(engine)
     engine.assignment_started(ticket.id, ticket.assignment_id)
-    engine.intake(make_trigger(text="@agent other", thread="github:issue:3"))
+    engine.intake(make_trigger(text="@agent other", thread="github:o/r#3"))
     engine.start_evals()
     engine.recover()
     recovered = engine.store.get(Ticket, ticket.id)
     assert recovered.assignment_id != ticket.assignment_id
     assert recovered.inputs[-1].kind == "recovery"
-    assert engine.store.get(Thread, "github:issue:3").queued
+    assert engine.store.get(Thread, "github:o/r#3").queued
 
 
 def test_pause_stops_evals_launches_and_deliveries(engine):
@@ -369,10 +369,10 @@ def test_decisions_are_stored(engine):
 def test_listened_threads_include_live_and_recently_ended_tickets(engine, clock):
     _, ticket = accept_one(engine)
     engine.follow(ticket.id, "#5")
-    assert engine.listened_threads() == {"github:issue:1", "github:issue:5"}
+    assert engine.listened_threads() == {"github:o/r#1", "github:o/r#5"}
     engine.report(ticket.id, ticket.assignment_id, Report("ready", "done"))
     clock.advance(13 * 86400)
-    assert "github:issue:1" in engine.listened_threads()
+    assert "github:o/r#1" in engine.listened_threads()
     clock.advance(2 * 86400)
     assert engine.listened_threads() == set()
 
