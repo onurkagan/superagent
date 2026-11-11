@@ -17,7 +17,9 @@ superagent/
   outbox.py        ordered, retried outgoing messages
   sources/         base.py (the Source port and registry), github.py, inbox.py
   llm/             the model port, the Anthropic client, a scripted client for tests
-  agents/          prompts.py, assessor.py, tools.py, worker.py, executor.py
+  agents/          prompts.py, assessor.py, tools.py, worker.py, executor.py,
+                   claude_code.py (the Claude Code backend)
+  bridge.py        MCP server giving Claude Code workers superagent's tools
   cards.py         how Assignments and Inputs read to a worker
   runtime.py       the loop that wires everything together
   panel/           read models, HTTP server, single-page UI
@@ -71,6 +73,17 @@ steps and persist every step. Each step:
 4. stops at a terminal Report, a refusal, a step limit or a cancel.
 
 Tool calls cut off by the output limit are not run; the model is told to make them again.
+
+## Claude Code backend
+
+With `backend = "claude-code"` the Executor runs `claude_code_turn` instead of the worker loop. A turn writes the
+waiting Input cards to `claude -p` on stdin, appends the worker prompt to Claude Code's own system prompt, and starts
+the MCP bridge with `--mcp-config`. The bridge validates each `reply`, `report`, `hand_back` and `follow_thread`
+call and appends it to an event file; the turn reads that file twice a second and passes the events on, so replies go
+out while the turn still runs. Permissions use `dontAsk` with an allow list of Claude Code's file and shell tools and
+the bridge tools; blocked commands become `Bash(...)` deny rules. Variables a parent Claude Code session sets
+(`CLAUDECODE`, `CLAUDE_CODE_*`) are removed from the child's environment, so superagent behaves the same when started
+from inside Claude Code.
 
 ## Store
 
